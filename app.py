@@ -88,13 +88,26 @@ if not login():
     st.stop()
 
 
+def github_status() -> str | None:
+    """None = GitHub korrekt eingetragen, sonst Grund."""
+    g = S.get("github")
+    if not g:
+        return "Abschnitt [github] fehlt in den Secrets."
+    tok, repo = str(g.get("token", "")), str(g.get("repo", ""))
+    if not tok or "HIER" in tok.upper() or tok.endswith("..."):
+        return "In den Secrets steht beim token noch kein echter GitHub-Token (er beginnt mit github_pat_)."
+    if not repo or "/" not in repo or "DEIN" in repo.upper() or "BENUTZERNAME" in repo.upper():
+        return "In den Secrets steht bei repo noch der Platzhalter – Format: deinname/hausbau-rechnungen-daten."
+    return None
+
+
 @st.cache_resource
 def store():
-    g = S.get("github")
-    if not g or not g.get("token") or "DEIN-GITHUB-NAME" in g.get("repo", "") or g["token"].startswith("GITHUB_PAT_HIER"):
+    if github_status():
         return None
+    g = S["github"]
     from storage import GitHubStore
-    return GitHubStore(g["token"], g["repo"], g.get("branch", "rechnungen"))
+    return GitHubStore(str(g["token"]).strip(), str(g["repo"]).strip(), g.get("branch", "rechnungen"))
 
 
 # ------------------------------------------------------------------ Zustand & Callbacks
@@ -176,6 +189,20 @@ def cb_zeile_neu(gid: str, vorlage: str) -> None:
     gruppe(gid)["zeilen"].append(neue_zeile(txt, m, e))
 
 
+def cb_schnell(gid: str) -> None:
+    """Schnellerfassung: Text → Zeilen."""
+    from textparse import leistungen_parsen, text_parsen
+    g = gruppe(gid)
+    gueltig = {m["nr"] for m in POS[g["bkp"]]["maengel"]} if g["bkp"] else set()
+    parser = text_parsen if ss.get(f"{gid}_mitpreis") else leistungen_parsen
+    neu = parser(ss.get(f"{gid}_schnell", ""))
+    for z in neu:
+        bezug = z["bezug"] if z["bezug"] in gueltig else ""
+        g["zeilen"].append(neue_zeile(z["text"], z["menge"], z["einheit"], z["ansatz"], bezug, "\n".join(z["unter"])))
+    ss[f"{gid}_schnell"] = ""
+    ss.hinweis_schnell = (gid, len(neu))
+
+
 def cb_gruppe_loeschen(gid: str) -> None:
     ss.gruppen = [g for g in ss.gruppen if g["id"] != gid]
 
@@ -231,7 +258,8 @@ t_neu, t_liste = st.tabs(["🧾 Neue Rechnung", "📋 Übersicht"])
 with t_liste:
     # ------------------------------------------------------------------ Übersicht
     if not store():
-        st.info("Die Übersicht braucht die GitHub-Ablage (Secrets → [github]).")
+        st.warning(f"GitHub-Ablage ist noch nicht eingerichtet: {github_status()}  \n"
+                   "Korrigieren unter *Manage app → ⋮ → Settings → Secrets*, danach die Seite neu laden.")
     else:
         n_final = sum(1 for r in rows if r.get("final") == "ja")
         if True:
@@ -284,6 +312,9 @@ with t_neu:
     3. **Leistungen erfassen** – erledigte Mängelpunkte abhaken (werden als Zeile übernommen, Haken weg = Zeile weg).
        Pro Zeile **Menge, Einheit und Preis** eintragen. Mit den Knöpfen *+ Material*, *+ Arbeit* … weitere Zeilen anfügen.
        *Unterpunkte* erscheinen auf der Rechnung als einzelne «–»-Zeilen.
+   ✍️ **Schneller:** Bei ChatGPT fragen, welche Arbeiten zur Position gehören (z.B. *«Welche Arbeitsschritte gehören
+   zu: Dachrinne undicht beim Zusammenschluss? Als kurze Liste.»*), die Liste kopieren und bei
+   *Leistungen als Text einfügen* hineinkopieren → jeder Punkt wird eine Zeile. Danach nur noch Menge und Preis eintragen.
     4. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.
     5. **Final markieren** – im Tab «📋 Übersicht» abhaken, sobald die Rechnung definitiv ist.
        Solange sie nicht final ist, bleibt sie ein **Entwurf** und wird beim erneuten Erstellen mit derselben Nummer überschrieben.
@@ -370,6 +401,22 @@ with t_neu:
                     cr.button("🗑️ Zeile", key=f"del_{zid}", on_click=cb_zeile_loeschen, args=(gid, zid),
                               width="stretch")
 
+            with st.expander("✍️ Leistungen als Text einfügen (z.B. aus ChatGPT)", expanded=not g["zeilen"]):
+                st.caption("Liste der Arbeiten hier einfügen – jeder Punkt wird eine eigene Zeile, eingerückte Punkte "
+                           "werden Unterpunkte. Überschriften und Einleitungssätze werden ignoriert. "
+                           "Menge und Preis danach bei jeder Zeile eintragen.")
+                st.text_area("Leistungen", key=f"{gid}_schnell", height=190, label_visibility="collapsed",
+                             placeholder="- Gerüst aufstellen und sichern\n- Dachrinne reinigen\n"
+                                         "- Alte Verbindung lösen\n    - Dichtmaterial entfernen\n"
+                                         "- Rinnenverbinder montieren und verlöten\n- Dichtigkeitsprüfung mit Wasser")
+                st.checkbox("Menge und Preis aus dem Text erkennen (z.B. «11 Stk à 525»)", key=f"{gid}_mitpreis")
+                st.button("Zeilen erstellen", key=f"schnell_btn_{gid}", on_click=cb_schnell, args=(gid,),
+                          type="primary", width="stretch")
+                h = ss.get("hinweis_schnell")
+                if h and h[0] == gid:
+                    st.success(f"{h[1]} Zeile(n) erstellt – bitte oben kurz prüfen.")
+                    ss.pop("hinweis_schnell", None)
+
             st.markdown("**Zeile hinzufügen**")
             cols = st.columns(3)
             for i, name in enumerate(VORLAGEN):
@@ -446,7 +493,7 @@ with t_neu:
                                 txt = "Repo nicht gefunden (404). Repo-Name in den Secrets und Token-Berechtigung prüfen."
                             res["msgs"].append(("error", f"GitHub-Speicherung fehlgeschlagen: {txt}"))
                     else:
-                        res["msgs"].append(("info", "GitHub ist nicht eingerichtet – Rechnung nur zum Download."))
+                        res["msgs"].append(("info", f"Nur zum Download – GitHub nicht eingerichtet: {github_status()}"))
                     if per_mail:
                         try:
                             from mailer import senden
