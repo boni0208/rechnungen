@@ -231,16 +231,24 @@ def jetzt() -> str:
         return datetime.now().strftime("%d.%m.%Y %H:%M")
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def journal_rows() -> list[dict]:
-    return store().journal()[0] if store() else []
+def journal(force: bool = False) -> tuple[list[dict], str | None]:
+    """Journal aus GitHub, in der Sitzung zwischengespeichert (max. 60 s alt)."""
+    if not store():
+        return [], None
+    alt = ss.get("jrows_ts", 0)
+    if force or "jrows" not in ss or datetime.now().timestamp() - alt > 60:
+        try:
+            ss.jrows, ss.jrows_ts = store().journal()[0], datetime.now().timestamp()
+        except Exception as e:
+            return ss.get("jrows", []), str(e)
+    return ss.jrows, None
 
 
-def journal() -> tuple[list[dict], str | None]:
-    try:
-        return journal_rows(), None
-    except Exception as e:
-        return [], str(e)
+def journal_setzen(rows: list[dict]) -> None:
+    """Nach dem Schreiben: lokale Kopie sofort aktualisieren (kein Neuladen nötig)."""
+    ss.jrows, ss.jrows_ts = rows, datetime.now().timestamp()
+    ss.pop("journal_editor", None)
+    ss.editor_v = ss.get("editor_v", 0) + 1
 
 
 def naechste_nr() -> str:
@@ -256,72 +264,109 @@ rows, jerr = journal()
 t_neu, t_liste = st.tabs(["🧾 Neue Rechnung", "📋 Übersicht"])
 
 with t_liste:
-    # ------------------------------------------------------------------ Übersicht
     if not store():
         st.warning(f"GitHub-Ablage ist noch nicht eingerichtet: {github_status()}  \n"
                    "Korrigieren unter *Manage app → ⋮ → Settings → Secrets*, danach die Seite neu laden.")
     else:
         n_final = sum(1 for r in rows if r.get("final") == "ja")
-        if True:
-            st.markdown(f"#### 📋 Erstellte Rechnungen\n{len(rows)} Rechnung(en) · davon **{n_final} final**")
-            if jerr:
-                st.error(f"Übersicht konnte nicht geladen werden: {jerr}")
-            elif not rows:
-                st.caption("Noch keine Rechnungen erstellt.")
-            else:
-                tabelle = [{"Final": r.get("final") == "ja", "Nr.": r["rechnungs_nr"], "Datum": r["rechnungsdatum"],
-                            "Positionen": r["positionen"], "Total CHF": r["total_chf"],
-                            "Erstellt": r["erstellt"], "Final am": r.get("final_am", "")} for r in reversed(rows)]
-                edit = st.data_editor(
-                    tabelle, hide_index=True, width="stretch", key="journal_editor",
-                    disabled=["Nr.", "Datum", "Positionen", "Total CHF", "Erstellt", "Final am"],
-                    column_config={"Final": st.column_config.CheckboxColumn("Final", help="Abhaken = definitiv, Nummer ist vergeben")})
-                neu = {z["Nr."]: bool(z["Final"]) for z in edit}
-                alt = {z["Nr."]: z["Final"] for z in tabelle}
-                geaendert = {k: v for k, v in neu.items() if alt.get(k) != v}
-                if geaendert:
-                    st.caption(f"{len(geaendert)} Änderung(en) noch nicht gespeichert.")
-                if st.button("💾 Final-Status speichern", disabled=not geaendert, width="stretch"):
-                    try:
-                        store().final_setzen(geaendert, jetzt())
-                        journal_rows.clear()
-                        ss.pop("journal_editor", None)
-                        if ss.get("nr") in geaendert or not ss.get("gruppen"):
-                            ss.nr_neu = True
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Speichern fehlgeschlagen: {e}")
-                nrs = [r["rechnungs_nr"] for r in reversed(rows)]
-                wahl = st.selectbox("Rechnung herunterladen", nrs, index=None, placeholder="Nr. wählen …")
-                if wahl:
-                    r0 = next(r for r in rows if r["rechnungs_nr"] == wahl)
-                    try:
-                        pdf, _ = store().get(r0["pdf"])
-                        if pdf:
-                            st.download_button(f"⬇️ PDF Rechnung {wahl}", pdf, r0["pdf"].split("/")[-1],
-                                               "application/pdf", width="stretch")
-                    except Exception as e:
-                        st.error(f"Download fehlgeschlagen: {e}")
+        c1, c2 = st.columns([3, 1])
+        c1.markdown(f"#### 📋 Erstellte Rechnungen\n{len(rows)} Rechnung(en) · davon **{n_final} final**")
+        if c2.button("🔄", help="Übersicht neu laden", width="stretch"):
+            journal(force=True)
+            ss.editor_v = ss.get("editor_v", 0) + 1
+            st.rerun()
+        if jerr:
+            st.error(f"Übersicht konnte nicht geladen werden: {jerr}")
+        if not rows:
+            st.caption("Noch keine Rechnungen erstellt.")
+        else:
+            tabelle = [{"Final": r.get("final") == "ja", "Löschen": False, "Nr.": r["rechnungs_nr"],
+                        "Datum": r["rechnungsdatum"], "Positionen": r["positionen"], "Total CHF": r["total_chf"],
+                        "Erstellt": r["erstellt"], "Final am": r.get("final_am", "")} for r in reversed(rows)]
+            edit = st.data_editor(
+                tabelle, hide_index=True, width="stretch", key=f"journal_editor_{ss.get('editor_v', 0)}",
+                disabled=["Nr.", "Datum", "Positionen", "Total CHF", "Erstellt", "Final am"],
+                column_config={
+                    "Final": st.column_config.CheckboxColumn("Final", help="Abhaken = definitiv, Nummer ist vergeben"),
+                    "Löschen": st.column_config.CheckboxColumn("🗑️", help="Entwurf löschen (finale Rechnungen nicht)")})
+            alt = {z["Nr."]: z["Final"] for z in tabelle}
+            final_neu = {z["Nr."]: bool(z["Final"]) for z in edit if alt.get(z["Nr."]) != bool(z["Final"])}
+            loeschen = [z["Nr."] for z in edit if z["Löschen"]]
+            if final_neu or loeschen:
+                teile = []
+                if final_neu:
+                    teile.append(f"{len(final_neu)} Final-Änderung(en)")
+                if loeschen:
+                    teile.append(f"{len(loeschen)} zum Löschen markiert (Nr. {', '.join(loeschen)})")
+                st.caption(" · ".join(teile) + " – noch nicht gespeichert.")
+            ok_loeschen = True
+            if loeschen:
+                ok_loeschen = st.checkbox(f"Ja, Rechnung {', '.join(loeschen)} endgültig löschen (PDF + Excel)")
+            if st.button("💾 Änderungen speichern", type="primary", width="stretch",
+                         disabled=not (final_neu or loeschen) or not ok_loeschen):
+                try:
+                    neu_rows = rows
+                    if final_neu:
+                        neu_rows = store().final_setzen(final_neu, jetzt())
+                    if loeschen:
+                        neu_rows = store().loeschen(loeschen)
+                    journal_setzen(neu_rows)
+                    if not ss.get("gruppen") or ss.get("nr") in set(final_neu) | set(loeschen):
+                        ss.nr_neu = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Speichern fehlgeschlagen: {e}")
+
+            st.markdown("##### Rechnung ansehen")
+            nrs = [r["rechnungs_nr"] for r in reversed(rows)]
+            wahl = st.selectbox("Rechnung", nrs, index=0, label_visibility="collapsed",
+                                format_func=lambda n: next(f"Nr. {r['rechnungs_nr']} · {r['positionen']} · CHF {r['total_chf']}"
+                                                           + (" · ✅ final" if r.get('final') == 'ja' else " · Entwurf")
+                                                           for r in rows if r['rechnungs_nr'] == n))
+            if wahl:
+                r0 = next(r for r in rows if r["rechnungs_nr"] == wahl)
+                cache = ss.setdefault("pdf_cache", {})
+                key = (wahl, r0.get("erstellt"))
+                try:
+                    if key not in cache:
+                        cache[key] = (store().get(r0["pdf"])[0], store().get(r0["excel"])[0])
+                    pdf, xlsx = cache[key]
+                    c1, c2 = st.columns(2)
+                    if pdf:
+                        c1.download_button("⬇️ PDF", pdf, r0["pdf"].split("/")[-1], "application/pdf",
+                                           width="stretch", type="primary", key=f"dl_pdf_{wahl}")
+                    if xlsx:
+                        c2.download_button("⬇️ Excel", xlsx, r0["excel"].split("/")[-1],
+                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                           width="stretch", key=f"dl_x_{wahl}")
+                    if pdf:
+                        import base64
+                        b64 = base64.b64encode(pdf).decode()
+                        st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="620" '
+                                    f'style="border:1px solid #C9D6E6;border-radius:10px;"></iframe>',
+                                    unsafe_allow_html=True)
+                        st.caption("Wird die Vorschau auf dem Handy nicht angezeigt: PDF herunterladen.")
+                except Exception as e:
+                    st.error(f"Rechnung konnte nicht geladen werden: {e}")
 
 
 with t_neu:
     with st.expander("ℹ️ So funktioniert's", expanded=not ss.gruppen):
-        st.markdown("""
-    1. **Rechnung** – Datum und Ausführungszeitraum prüfen. Die Nummer wird automatisch vorgeschlagen.
-    2. **Position wählen** – z.B. *273.3 · Innentüren* → **Hinzufügen**. Arbeiten, die nicht in der Liste stehen → *Zusatzleistung*.
-    3. **Leistungen erfassen** – erledigte Mängelpunkte abhaken (werden als Zeile übernommen, Haken weg = Zeile weg).
-       Pro Zeile **Menge, Einheit und Preis** eintragen. Mit den Knöpfen *+ Material*, *+ Arbeit* … weitere Zeilen anfügen.
-       *Unterpunkte* erscheinen auf der Rechnung als einzelne «–»-Zeilen.
-   ✍️ **Schneller:** Bei ChatGPT fragen, welche Arbeiten zur Position gehören (z.B. *«Welche Arbeitsschritte gehören
-   zu: Dachrinne undicht beim Zusammenschluss? Als kurze Liste.»*), die Liste kopieren und bei
-   *Leistungen als Text einfügen* hineinkopieren → jeder Punkt wird eine Zeile. Danach nur noch Menge und Preis eintragen.
-    4. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.
-    5. **Final markieren** – im Tab «📋 Übersicht» abhaken, sobald die Rechnung definitiv ist.
-       Solange sie nicht final ist, bleibt sie ein **Entwurf** und wird beim erneuten Erstellen mit derselben Nummer überschrieben.
-       Erst nach dem Haken zählt die Nummer weiter.
+        st.markdown(
+            "1. **Rechnung** – Datum und Ausführungszeitraum prüfen. Die Nummer wird automatisch vorgeschlagen.\n"
+            "2. **Position wählen** – z.B. *273.3 · Innentüren* → **Hinzufügen**. "
+            "Arbeiten, die nicht in der Liste stehen → *Zusatzleistung*.\n"
+            "3. **Leistungen erfassen** – erledigte Mängelpunkte abhaken (Haken weg = Zeile weg). "
+            "Pro Zeile **Menge, Einheit und Preis** eintragen. *Unterpunkte* erscheinen als einzelne «–»-Zeilen.\n"
+            "4. ✍️ **Schneller:** ChatGPT fragen, welche Arbeiten dazugehören (z.B. *«Welche Arbeitsschritte gehören zu: "
+            "Dachrinne undicht beim Zusammenschluss? Als kurze Liste.»*), Antwort kopieren und bei "
+            "*Leistungen als Text einfügen* hineinkopieren → jeder Punkt wird eine Zeile.\n"
+            "5. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.\n"
+            "6. **Übersicht** – im Tab *📋 Übersicht* Rechnungen ansehen, als **final** abhaken oder Entwürfe löschen. "
+            "Nicht finale Rechnungen sind Entwürfe und werden mit derselben Nummer überschrieben; "
+            "erst nach dem Final-Haken zählt die Nummer weiter.\n\n"
+            "💡 Material getrennt von der Arbeit erfassen (z.B. *11 Stk. à 525.–* und *Montage pauschal*) – das will die Bank sehen.")
 
-    💡 Tipp: Material getrennt von der Arbeit erfassen (z.B. *11 Stk. à 525.–* und *Montage pauschal*) – das will die Bank sehen.
-    """)
 
     # ------------------------------------------------------------------ 1. Rechnung
     with st.container(border=True):
@@ -482,7 +527,7 @@ with t_neu:
                                 "rechnungs_nr": r.nr, "rechnungsdatum": dstr(r.datum),
                                 "positionen": "; ".join(g.bkp or "Zusatz" for g in r.gruppen),
                                 "total_chf": f"{r.total:.2f}", "erstellt": jetzt()})
-                            journal_rows.clear()
+                            journal_setzen(info["rows"])
                             res["msgs"].append(("success", f"Als Entwurf in GitHub gespeichert: {info['pdf']}. "
                                                            "Im Tab «📋 Übersicht» als final abhaken, wenn sie definitiv ist."))
                         except Exception as e:
@@ -508,6 +553,7 @@ with t_neu:
                         except Exception as e:
                             res["msgs"].append(("error", f"E-Mail fehlgeschlagen: {e}"))
                     ss.result = res
+                    st.rerun()
 
         if res := ss.get("result"):
             with st.container(border=True):

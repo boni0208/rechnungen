@@ -72,6 +72,14 @@ class GitHubStore:
         r.raise_for_status()
         return r.json()["content"]["html_url"]
 
+    def delete(self, path: str, message: str) -> None:
+        _, sha = self.get(path)
+        if not sha:
+            return
+        r = self.s.delete(self._url(path), json={"message": message, "sha": sha, "branch": self.branch})
+        if r.status_code != 404:
+            r.raise_for_status()
+
     # -- Journal
     def journal(self) -> tuple[list[dict], str | None]:
         raw, sha = self.get(JOURNAL)
@@ -116,7 +124,7 @@ class GitHubStore:
         rows = [r for r in rows if r.get("rechnungs_nr") != str(nr)]
         rows.append({**eintrag, "excel": p_x, "pdf": p_p, "final": "nein", "final_am": ""})
         url = self._write_journal(rows, jsha, f"Journal: Rechnung {nr} (Entwurf)")
-        return {"excel": p_x, "pdf": p_p, "journal_url": url}
+        return {"excel": p_x, "pdf": p_p, "journal_url": url, "rows": sorted(rows, key=_nr)}
 
     def final_setzen(self, status: dict[str, bool], zeitstempel: str) -> int:
         """status: {rechnungs_nr: True/False}. Gibt Anzahl geänderter Einträge zurück."""
@@ -130,4 +138,19 @@ class GitHubStore:
                 n += 1
         if n:
             self._write_journal(rows, sha, f"Journal: Final-Status ({n} Änderung/en)")
-        return n
+        return rows
+
+    def loeschen(self, nrs: list[str]) -> list[dict]:
+        """Löscht Entwürfe (Dateien + Journal-Eintrag). Finale Rechnungen werden nicht gelöscht."""
+        rows, sha = self.journal()
+        weg = [r for r in rows if r.get("rechnungs_nr") in nrs]
+        finals = [r["rechnungs_nr"] for r in weg if ist_final(r)]
+        if finals:
+            raise RechnungFinal(f"Rechnung {', '.join(finals)} ist final – zuerst den Final-Haken entfernen.")
+        for r in weg:
+            for p in (r.get("excel"), r.get("pdf")):
+                if p:
+                    self.delete(p, f"Rechnung {r['rechnungs_nr']} gelöscht")
+        rows = [r for r in rows if r.get("rechnungs_nr") not in nrs]
+        self._write_journal(rows, sha, f"Journal: Rechnung {', '.join(nrs)} gelöscht")
+        return sorted(rows, key=_nr)
