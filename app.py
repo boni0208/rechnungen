@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -76,7 +76,7 @@ def login() -> bool:
     hero("Firma Boniface · Hausbau Gerlafingen")
     with st.container(border=True):
         eingabe = st.text_input("Passwort", type="password")
-        if st.button("Anmelden", type="primary", use_container_width=True):
+        if st.button("Anmelden", type="primary", width="stretch"):
             if eingabe == pw:
                 ss.ok = True
                 st.rerun()
@@ -99,6 +99,9 @@ def store():
 
 # ------------------------------------------------------------------ Zustand & Callbacks
 ss.setdefault("gruppen", [])   # [{id, bkp, titel, zeilen:[zid], auto:{mangel_nr: zid}}]
+for _g in ss.gruppen:          # Sitzungen aus älteren App-Versionen nachrüsten
+    _g.setdefault("auto", {})
+    _g.setdefault("zeilen", [])
 
 
 def neue_zeile(text="", menge=1.0, einheit="pauschal", ansatz=None, bezug="", unter="") -> str:
@@ -189,197 +192,289 @@ def gruppen_obj() -> list[Gruppe]:
                    zeilen=[zeile_aus_state(z) for z in g["zeilen"]]) for g in ss.gruppen]
 
 
+# ------------------------------------------------------------------ Journal-Hilfen
+START = int(S.get("START_NR", 1024))
+
+
+def jetzt() -> str:
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Europe/Zurich")).strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return datetime.now().strftime("%d.%m.%Y %H:%M")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def journal_rows() -> list[dict]:
+    return store().journal()[0] if store() else []
+
+
+def journal() -> tuple[list[dict], str | None]:
+    try:
+        return journal_rows(), None
+    except Exception as e:
+        return [], str(e)
+
+
+def naechste_nr() -> str:
+    from storage import GitHubStore
+    rows, _ = journal()
+    return str(GitHubStore.naechste_nr_aus(rows, START))
+
+
 # ------------------------------------------------------------------ Kopf + Anleitung
 hero("Firma Boniface · Hausbau Gerlafingen · Grundlage: Mängelliste Architekt vom 04.07.2026")
 
-with st.expander("ℹ️ So funktioniert's", expanded=not ss.gruppen):
-    st.markdown("""
-1. **Rechnung** – Datum und Ausführungszeitraum prüfen. Die Nummer zählt automatisch weiter.
-2. **Position wählen** – z.B. *273.3 · Innentüren* → **Hinzufügen**. Arbeiten, die nicht in der Liste stehen → *Zusatzleistung*.
-3. **Leistungen erfassen** – erledigte Mängelpunkte abhaken (werden als Zeile übernommen, Haken weg = Zeile weg).
-   Pro Zeile **Menge, Einheit und Preis** eintragen. Mit den Knöpfen *+ Material*, *+ Arbeit* … weitere Zeilen anfügen.
-   *Unterpunkte* erscheinen auf der Rechnung als einzelne «–»-Zeilen.
-4. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.
+rows, jerr = journal()
+t_neu, t_liste = st.tabs(["🧾 Neue Rechnung", "📋 Übersicht"])
 
-💡 Tipp: Material getrennt von der Arbeit erfassen (z.B. *11 Stk. à 525.–* und *Montage pauschal*) – das will die Bank sehen.
-""")
+with t_liste:
+    # ------------------------------------------------------------------ Übersicht
+    if not store():
+        st.info("Die Übersicht braucht die GitHub-Ablage (Secrets → [github]).")
+    else:
+        n_final = sum(1 for r in rows if r.get("final") == "ja")
+        if True:
+            st.markdown(f"#### 📋 Erstellte Rechnungen\n{len(rows)} Rechnung(en) · davon **{n_final} final**")
+            if jerr:
+                st.error(f"Übersicht konnte nicht geladen werden: {jerr}")
+            elif not rows:
+                st.caption("Noch keine Rechnungen erstellt.")
+            else:
+                tabelle = [{"Final": r.get("final") == "ja", "Nr.": r["rechnungs_nr"], "Datum": r["rechnungsdatum"],
+                            "Positionen": r["positionen"], "Total CHF": r["total_chf"],
+                            "Erstellt": r["erstellt"], "Final am": r.get("final_am", "")} for r in reversed(rows)]
+                edit = st.data_editor(
+                    tabelle, hide_index=True, width="stretch", key="journal_editor",
+                    disabled=["Nr.", "Datum", "Positionen", "Total CHF", "Erstellt", "Final am"],
+                    column_config={"Final": st.column_config.CheckboxColumn("Final", help="Abhaken = definitiv, Nummer ist vergeben")})
+                neu = {z["Nr."]: bool(z["Final"]) for z in edit}
+                alt = {z["Nr."]: z["Final"] for z in tabelle}
+                geaendert = {k: v for k, v in neu.items() if alt.get(k) != v}
+                if geaendert:
+                    st.caption(f"{len(geaendert)} Änderung(en) noch nicht gespeichert.")
+                if st.button("💾 Final-Status speichern", disabled=not geaendert, width="stretch"):
+                    try:
+                        store().final_setzen(geaendert, jetzt())
+                        journal_rows.clear()
+                        ss.pop("journal_editor", None)
+                        if ss.get("nr") in geaendert or not ss.get("gruppen"):
+                            ss.nr_neu = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Speichern fehlgeschlagen: {e}")
+                nrs = [r["rechnungs_nr"] for r in reversed(rows)]
+                wahl = st.selectbox("Rechnung herunterladen", nrs, index=None, placeholder="Nr. wählen …")
+                if wahl:
+                    r0 = next(r for r in rows if r["rechnungs_nr"] == wahl)
+                    try:
+                        pdf, _ = store().get(r0["pdf"])
+                        if pdf:
+                            st.download_button(f"⬇️ PDF Rechnung {wahl}", pdf, r0["pdf"].split("/")[-1],
+                                               "application/pdf", width="stretch")
+                    except Exception as e:
+                        st.error(f"Download fehlgeschlagen: {e}")
 
-# ------------------------------------------------------------------ 1. Rechnung
-with st.container(border=True):
-    step(1, "Rechnung")
-    if "nr" not in ss:
-        start = int(S.get("START_NR", 1024))
-        try:
-            ss.nr = str(store().naechste_nr(start)) if store() else str(start)
-        except Exception as e:
-            st.warning(f"Rechnungsnummer konnte nicht aus GitHub gelesen werden ({e}).")
-            ss.nr = str(start)
-    c1, c2 = st.columns(2)
-    c1.text_input("Rechnungs-Nr.", key="nr")
-    datum = c2.date_input("Rechnungsdatum", value=date.today(), format="DD.MM.YYYY")
-    c1, c2 = st.columns(2)
-    von = c1.date_input("Ausgeführt von", value=date.today(), format="DD.MM.YYYY")
-    bis = c2.date_input("bis", value=date.today(), format="DD.MM.YYYY")
 
-# ------------------------------------------------------------------ 2. Position
-with st.container(border=True):
-    step(2, "Position wählen")
-    optionen = [f"{p['pos']} · {p['titel']}" for p in DATA["positionen"]] + [ZUSATZ]
-    wahl = st.selectbox("Position aus der Mängelliste", optionen, index=None,
-                        placeholder="Position wählen …", key="pos_wahl")
-    if wahl == ZUSATZ:
-        st.text_input("Bezeichnung der Zusatzleistung", key="zusatz_titel",
-                      placeholder="z.B. Zusätzliche Steckdose Garage")
-        st.button("Zusatzleistung hinzufügen", on_click=cb_zusatz_hinzufuegen,
-                  type="primary", use_container_width=True)
-    elif wahl:
-        p = POS[wahl.split(" · ")[0]]
-        st.caption(f"{len(p['maengel'])} Mängelpunkte · Schätzung Architekt CHF {chf(p['schaetzung'])}")
-        st.button("Hinzufügen", on_click=cb_position_hinzufuegen, type="primary", use_container_width=True)
-    if msg := ss.pop("hinweis", None):
-        st.info(msg)
+with t_neu:
+    with st.expander("ℹ️ So funktioniert's", expanded=not ss.gruppen):
+        st.markdown("""
+    1. **Rechnung** – Datum und Ausführungszeitraum prüfen. Die Nummer wird automatisch vorgeschlagen.
+    2. **Position wählen** – z.B. *273.3 · Innentüren* → **Hinzufügen**. Arbeiten, die nicht in der Liste stehen → *Zusatzleistung*.
+    3. **Leistungen erfassen** – erledigte Mängelpunkte abhaken (werden als Zeile übernommen, Haken weg = Zeile weg).
+       Pro Zeile **Menge, Einheit und Preis** eintragen. Mit den Knöpfen *+ Material*, *+ Arbeit* … weitere Zeilen anfügen.
+       *Unterpunkte* erscheinen auf der Rechnung als einzelne «–»-Zeilen.
+    4. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.
+    5. **Final markieren** – im Tab «📋 Übersicht» abhaken, sobald die Rechnung definitiv ist.
+       Solange sie nicht final ist, bleibt sie ein **Entwurf** und wird beim erneuten Erstellen mit derselben Nummer überschrieben.
+       Erst nach dem Haken zählt die Nummer weiter.
 
-# ------------------------------------------------------------------ 3. Leistungen
-if ss.gruppen:
-    step(3, "Leistungen erfassen")
-gobjs = gruppen_obj()
-for gi, (g, gobj) in enumerate(zip(list(ss.gruppen), gobjs), 1):
-    gid = g["id"]
-    kopf = f"{gi} · {g['bkp'] + ' · ' if g['bkp'] else '➕ '}{gobj.titel}   —   CHF {chf(gobj.total)}"
-    with st.expander(kopf, expanded=True):
-        st.text_input("Titel auf der Rechnung", key=f"{gid}_titel")
+    💡 Tipp: Material getrennt von der Arbeit erfassen (z.B. *11 Stk. à 525.–* und *Montage pauschal*) – das will die Bank sehen.
+    """)
 
-        if g["bkp"]:
-            st.markdown("**Erledigte Punkte aus der Mängelliste**")
-            for m in POS[g["bkp"]]["maengel"]:
-                k = f"{gid}_m_{m['nr']}"
-                ss.setdefault(k, m["nr"] in g["auto"])
-                st.checkbox(f"{m['nr']} – {m['text']}", key=k, on_change=cb_mangel, args=(gid, m["nr"], m["text"]))
-            bezug_opt = [""] + [m["nr"] for m in POS[g["bkp"]]["maengel"]]
-
-        if not g["zeilen"]:
-            st.caption("Noch keine Zeilen – Mängelpunkt abhaken oder unten eine Zeile hinzufügen.")
-        for zi, zid in enumerate(g["zeilen"], 1):
-            with st.container(border=True):
-                z = zeile_aus_state(zid)
-                chips = f'<span class="chip">{gi}.{zi}</span>' + (f'<span class="chip">↳ {z.bezug}</span>' if z.bezug else "")
-                st.markdown(chips, unsafe_allow_html=True)
-                st.text_input("Leistung", key=f"{zid}_text")
-                a, b, c = st.columns([1, 1, 1.2])
-                a.number_input("Menge", key=f"{zid}_menge", min_value=0.0, step=1.0, format="%.2f")
-                b.selectbox("Einheit", EINHEITEN, key=f"{zid}_einheit")
-                c.number_input("Preis CHF", key=f"{zid}_ansatz", min_value=0.0, step=10.0, format="%.2f")
-                if g["bkp"]:
-                    st.selectbox("Bezug Mängelliste", bezug_opt, key=f"{zid}_bezug",
-                                 format_func=lambda x: x or "– kein direkter Bezug –")
-                st.text_area("Unterpunkte (eine pro Zeile, optional)", key=f"{zid}_unter", height=80,
-                             placeholder="Montage Zargen\nEinhängen Türblätter\nEntsorgung Verpackung")
-                cl, cr = st.columns([2, 1])
-                cl.markdown(f"Betrag: **CHF {chf(z.betrag)}**")
-                cr.button("🗑️ Zeile", key=f"del_{zid}", on_click=cb_zeile_loeschen, args=(gid, zid),
-                          use_container_width=True)
-
-        st.markdown("**Zeile hinzufügen**")
-        cols = st.columns(3)
-        for i, name in enumerate(VORLAGEN):
-            cols[i % 3].button(f"+ {name}", key=f"add_{name}_{gid}", on_click=cb_zeile_neu, args=(gid, name),
-                               use_container_width=True)
-        cols[2].button("🗑️ Position", key=f"delg_{gid}", on_click=cb_gruppe_loeschen, args=(gid,),
-                       use_container_width=True)
-
-# ------------------------------------------------------------------ 4. Erstellen
-if ss.gruppen:
-    firma = dict(S.get("firma", {}))
-    empf_default = dict(S.get("empfaenger", {}))
+    # ------------------------------------------------------------------ 1. Rechnung
     with st.container(border=True):
-        step(4, "Prüfen & erstellen")
-        with st.expander("Empfänger"):
-            empf = {"name": st.text_input("Name", empf_default.get("name", "")),
-                    "strasse": st.text_input("Strasse", empf_default.get("strasse", "")),
-                    "plz_ort": st.text_input("PLZ / Ort", empf_default.get("plz_ort", ""))}
-        r = Rechnung(nr=ss.nr.strip(), datum=datum, zahlbar_bis=datum + timedelta(days=30),
-                     ausfuehrung=f"{dstr(von)} – {dstr(bis)}" if von != bis else dstr(von),
-                     firma=firma, empfaenger=empf,
-                     objekt=S.get("objekt", {}).get("text", ""),
-                     grundlage=S.get("objekt", {}).get("grundlage", DATA["quelle"]),
-                     gruppen=gruppen_obj())
-        sub = (f"exkl. MWST {chf(r.total_exkl)} · MWST 8.1 % {chf(r.mwst)}" if r.mwst_pflichtig
-               else "ohne MWST (keine MWST-Nr. hinterlegt)")
-        n_zeilen = sum(len(g.zeilen) for g in r.gruppen)
-        st.markdown(f'<div class="total"><div class="lbl">Rechnung {r.nr} · {len(r.gruppen)} Position(en) · '
-                    f'{n_zeilen} Zeile(n)</div><div class="val">CHF {chf(r.total)}</div>'
-                    f'<div class="sub">{sub} · zahlbar bis {dstr(r.zahlbar_bis)}</div></div>',
-                    unsafe_allow_html=True)
+        step(1, "Rechnung")
+        if "nr" not in ss or ss.pop("nr_neu", False):
+            ss.nr = naechste_nr() if store() else str(START)
+        if jerr and store():
+            st.warning(f"Rechnungsnummer konnte nicht aus GitHub gelesen werden ({jerr}).")
+        c1, c2 = st.columns(2)
+        c1.text_input("Rechnungs-Nr.", key="nr")
+        datum = c2.date_input("Rechnungsdatum", value=date.today(), format="DD.MM.YYYY")
+        c1, c2 = st.columns(2)
+        von = c1.date_input("Ausgeführt von", value=date.today(), format="DD.MM.YYYY")
+        bis = c2.date_input("bis", value=date.today(), format="DD.MM.YYYY")
+        vorhanden = next((r for r in rows if r.get("rechnungs_nr") == ss.nr.strip()), None)
+        NR_FINAL = bool(vorhanden and vorhanden.get("final") == "ja")
+        if NR_FINAL:
+            st.error(f"Rechnung {ss.nr} ist bereits **final**. Nächste freie Nummer: **{naechste_nr()}**.")
+        elif vorhanden:
+            st.info(f"Zu Nr. {ss.nr} gibt es einen Entwurf vom {vorhanden['erstellt']} – er wird beim Erstellen überschrieben.")
 
-        fehler = []
-        if not firma.get("name"):
-            fehler.append("Firmendaten fehlen in den Secrets.")
-        for g in r.gruppen:
-            if not g.zeilen:
-                fehler.append(f"Position «{g.titel}» hat noch keine Zeilen.")
-            for z in g.zeilen:
-                if not z.text:
-                    fehler.append(f"Eine Zeile in «{g.titel}» hat keinen Leistungstext.")
-                if z.ansatz is None:
-                    fehler.append(f"«{z.text or 'Zeile'}» hat noch keinen Preis.")
-        for f in dict.fromkeys(fehler):
-            st.warning(f)
+    # ------------------------------------------------------------------ 2. Position
+    with st.container(border=True):
+        step(2, "Position wählen")
+        optionen = [f"{p['pos']} · {p['titel']}" for p in DATA["positionen"]] + [ZUSATZ]
+        wahl = st.selectbox("Position aus der Mängelliste", optionen, index=None,
+                            placeholder="Position wählen …", key="pos_wahl")
+        if wahl == ZUSATZ:
+            st.text_input("Bezeichnung der Zusatzleistung", key="zusatz_titel",
+                          placeholder="z.B. Zusätzliche Steckdose Garage")
+            st.button("Zusatzleistung hinzufügen", on_click=cb_zusatz_hinzufuegen,
+                      type="primary", width="stretch")
+        elif wahl:
+            p = POS[wahl.split(" · ")[0]]
+            st.caption(f"{len(p['maengel'])} Mängelpunkte · Schätzung Architekt CHF {chf(p['schaetzung'])}")
+            st.button("Hinzufügen", on_click=cb_position_hinzufuegen, type="primary", width="stretch")
+        if msg := ss.pop("hinweis", None):
+            st.info(msg)
 
-        mail_cfg = S.get("mail")
-        per_mail, mail_an = False, ""
-        if mail_cfg:
-            per_mail = st.toggle("Zusätzlich per E-Mail senden")
-            if per_mail:
-                mail_an = st.text_input("E-Mail an (mehrere mit Komma)", mail_cfg.get("standard_empfaenger", ""))
+    # ------------------------------------------------------------------ 3. Leistungen
+    if ss.gruppen:
+        step(3, "Leistungen erfassen")
+    gobjs = gruppen_obj()
+    for gi, (g, gobj) in enumerate(zip(list(ss.gruppen), gobjs), 1):
+        gid = g["id"]
+        kopf = f"{gi} · {g['bkp'] + ' · ' if g['bkp'] else '➕ '}{gobj.titel}   —   CHF {chf(gobj.total)}"
+        with st.expander(kopf, expanded=True):
+            st.text_input("Titel auf der Rechnung", key=f"{gid}_titel")
 
-        if st.button("✅ Rechnung erstellen", type="primary", use_container_width=True, disabled=bool(fehler)):
-            with st.spinner("Rechnung wird erstellt …"):
-                xlsx, pdf, name = als_excel(r), als_pdf(r), dateiname(r)
-                res = {"name": name, "xlsx": xlsx, "pdf": pdf, "msgs": []}
-                if store():
-                    try:
-                        info = store().speichern(r.nr, name, xlsx, pdf, {
-                            "rechnungs_nr": r.nr, "rechnungsdatum": dstr(r.datum),
-                            "positionen": "; ".join(g.bkp or "Zusatz" for g in r.gruppen),
-                            "total_chf": f"{r.total:.2f}", "erstellt": date.today().isoformat()})
-                        res["msgs"].append(("success", f"In GitHub gespeichert: {info['pdf']}"))
-                    except Exception as e:
-                        txt = str(e)
-                        if "401" in txt:
-                            txt = "Token ungültig oder abgelaufen (401). Token in den Secrets prüfen."
-                        elif "404" in txt:
-                            txt = "Repo nicht gefunden (404). Repo-Name in den Secrets und Token-Berechtigung prüfen."
-                        res["msgs"].append(("error", f"GitHub-Speicherung fehlgeschlagen: {txt}"))
-                else:
-                    res["msgs"].append(("info", "GitHub ist nicht eingerichtet – Rechnung nur zum Download."))
-                if per_mail:
-                    try:
-                        from mailer import senden
-                        an = [a.strip() for a in mail_an.split(",") if a.strip()]
-                        senden(mail_cfg, an, f"Rechnung {r.nr} – {r.firma['name']}",
-                               f"Guten Tag\n\nIm Anhang die Rechnung {r.nr} über CHF {chf(r.total)}.\n\n"
-                               f"Freundliche Grüsse\n{r.firma['name']}",
-                               [(f"{name}.pdf", pdf, "application/pdf"),
-                                (f"{name}.xlsx", xlsx,
-                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")])
-                        res["msgs"].append(("success", f"E-Mail gesendet an {', '.join(an)}"))
-                    except Exception as e:
-                        res["msgs"].append(("error", f"E-Mail fehlgeschlagen: {e}"))
-                ss.result = res
+            if g["bkp"]:
+                st.markdown("**Erledigte Punkte aus der Mängelliste**")
+                for m in POS[g["bkp"]]["maengel"]:
+                    k = f"{gid}_m_{m['nr']}"
+                    ss.setdefault(k, m["nr"] in g["auto"])
+                    st.checkbox(f"{m['nr']} – {m['text']}", key=k, on_change=cb_mangel, args=(gid, m["nr"], m["text"]))
+                bezug_opt = [""] + [m["nr"] for m in POS[g["bkp"]]["maengel"]]
 
-    if res := ss.get("result"):
+            if not g["zeilen"]:
+                st.caption("Noch keine Zeilen – Mängelpunkt abhaken oder unten eine Zeile hinzufügen.")
+            for zi, zid in enumerate(g["zeilen"], 1):
+                with st.container(border=True):
+                    z = zeile_aus_state(zid)
+                    chips = f'<span class="chip">{gi}.{zi}</span>' + (f'<span class="chip">↳ {z.bezug}</span>' if z.bezug else "")
+                    st.markdown(chips, unsafe_allow_html=True)
+                    st.text_input("Leistung", key=f"{zid}_text")
+                    a, b, c = st.columns([1, 1, 1.2])
+                    a.number_input("Menge", key=f"{zid}_menge", min_value=0.0, step=1.0, format="%.2f")
+                    b.selectbox("Einheit", EINHEITEN, key=f"{zid}_einheit")
+                    c.number_input("Preis CHF", key=f"{zid}_ansatz", min_value=0.0, step=10.0, format="%.2f")
+                    if g["bkp"]:
+                        st.selectbox("Bezug Mängelliste", bezug_opt, key=f"{zid}_bezug",
+                                     format_func=lambda x: x or "– kein direkter Bezug –")
+                    st.text_area("Unterpunkte (eine pro Zeile, optional)", key=f"{zid}_unter", height=80,
+                                 placeholder="Montage Zargen\nEinhängen Türblätter\nEntsorgung Verpackung")
+                    cl, cr = st.columns([2, 1])
+                    cl.markdown(f"Betrag: **CHF {chf(z.betrag)}**")
+                    cr.button("🗑️ Zeile", key=f"del_{zid}", on_click=cb_zeile_loeschen, args=(gid, zid),
+                              width="stretch")
+
+            st.markdown("**Zeile hinzufügen**")
+            cols = st.columns(3)
+            for i, name in enumerate(VORLAGEN):
+                cols[i % 3].button(f"+ {name}", key=f"add_{name}_{gid}", on_click=cb_zeile_neu, args=(gid, name),
+                                   width="stretch")
+            cols[2].button("🗑️ Position", key=f"delg_{gid}", on_click=cb_gruppe_loeschen, args=(gid,),
+                           width="stretch")
+
+    # ------------------------------------------------------------------ 4. Erstellen
+    if ss.gruppen:
+        firma = dict(S.get("firma", {}))
+        empf_default = dict(S.get("empfaenger", {}))
         with st.container(border=True):
-            st.markdown("#### 🎉 Rechnung erstellt")
-            for kind, m in res["msgs"]:
-                getattr(st, kind)(m)
-            c1, c2 = st.columns(2)
-            c1.download_button("⬇️ PDF", res["pdf"], f"{res['name']}.pdf", "application/pdf",
-                               use_container_width=True, type="primary")
-            c2.download_button("⬇️ Excel", res["xlsx"], f"{res['name']}.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               use_container_width=True)
-            if st.button("Neue Rechnung beginnen", use_container_width=True):
-                for k in list(ss.keys()):
-                    if k != "ok":
-                        del ss[k]
-                st.rerun()
+            step(4, "Prüfen & erstellen")
+            with st.expander("Empfänger"):
+                empf = {"name": st.text_input("Name", empf_default.get("name", "")),
+                        "strasse": st.text_input("Strasse", empf_default.get("strasse", "")),
+                        "plz_ort": st.text_input("PLZ / Ort", empf_default.get("plz_ort", ""))}
+            r = Rechnung(nr=ss.nr.strip(), datum=datum, zahlbar_bis=datum + timedelta(days=30),
+                         ausfuehrung=f"{dstr(von)} – {dstr(bis)}" if von != bis else dstr(von),
+                         firma=firma, empfaenger=empf,
+                         objekt=S.get("objekt", {}).get("text", ""),
+                         grundlage=S.get("objekt", {}).get("grundlage", DATA["quelle"]),
+                         gruppen=gruppen_obj())
+            sub = (f"exkl. MWST {chf(r.total_exkl)} · MWST 8.1 % {chf(r.mwst)}" if r.mwst_pflichtig
+                   else "ohne MWST (keine MWST-Nr. hinterlegt)")
+            n_zeilen = sum(len(g.zeilen) for g in r.gruppen)
+            st.markdown(f'<div class="total"><div class="lbl">Rechnung {r.nr} · {len(r.gruppen)} Position(en) · '
+                        f'{n_zeilen} Zeile(n)</div><div class="val">CHF {chf(r.total)}</div>'
+                        f'<div class="sub">{sub} · zahlbar bis {dstr(r.zahlbar_bis)}</div></div>',
+                        unsafe_allow_html=True)
+
+            fehler = []
+            if not firma.get("name"):
+                fehler.append("Firmendaten fehlen in den Secrets.")
+            for g in r.gruppen:
+                if not g.zeilen:
+                    fehler.append(f"Position «{g.titel}» hat noch keine Zeilen.")
+                for z in g.zeilen:
+                    if not z.text:
+                        fehler.append(f"Eine Zeile in «{g.titel}» hat keinen Leistungstext.")
+                    if z.ansatz is None:
+                        fehler.append(f"«{z.text or 'Zeile'}» hat noch keinen Preis.")
+            if NR_FINAL:
+                fehler.append(f"Rechnungs-Nr. {r.nr} ist final – bitte die nächste freie Nummer verwenden.")
+            for f in dict.fromkeys(fehler):
+                st.warning(f)
+
+            mail_cfg = S.get("mail")
+            per_mail, mail_an = False, ""
+            if mail_cfg:
+                per_mail = st.toggle("Zusätzlich per E-Mail senden")
+                if per_mail:
+                    mail_an = st.text_input("E-Mail an (mehrere mit Komma)", mail_cfg.get("standard_empfaenger", ""))
+
+            if st.button("✅ Rechnung erstellen", type="primary", width="stretch", disabled=bool(fehler)):
+                with st.spinner("Rechnung wird erstellt …"):
+                    xlsx, pdf, name = als_excel(r), als_pdf(r), dateiname(r)
+                    res = {"name": name, "xlsx": xlsx, "pdf": pdf, "msgs": []}
+                    if store():
+                        try:
+                            info = store().speichern(r.nr, name, xlsx, pdf, {
+                                "rechnungs_nr": r.nr, "rechnungsdatum": dstr(r.datum),
+                                "positionen": "; ".join(g.bkp or "Zusatz" for g in r.gruppen),
+                                "total_chf": f"{r.total:.2f}", "erstellt": jetzt()})
+                            journal_rows.clear()
+                            res["msgs"].append(("success", f"Als Entwurf in GitHub gespeichert: {info['pdf']}. "
+                                                           "Im Tab «📋 Übersicht» als final abhaken, wenn sie definitiv ist."))
+                        except Exception as e:
+                            txt = str(e)
+                            if "401" in txt:
+                                txt = "Token ungültig oder abgelaufen (401). Token in den Secrets prüfen."
+                            elif "404" in txt:
+                                txt = "Repo nicht gefunden (404). Repo-Name in den Secrets und Token-Berechtigung prüfen."
+                            res["msgs"].append(("error", f"GitHub-Speicherung fehlgeschlagen: {txt}"))
+                    else:
+                        res["msgs"].append(("info", "GitHub ist nicht eingerichtet – Rechnung nur zum Download."))
+                    if per_mail:
+                        try:
+                            from mailer import senden
+                            an = [a.strip() for a in mail_an.split(",") if a.strip()]
+                            senden(mail_cfg, an, f"Rechnung {r.nr} – {r.firma['name']}",
+                                   f"Guten Tag\n\nIm Anhang die Rechnung {r.nr} über CHF {chf(r.total)}.\n\n"
+                                   f"Freundliche Grüsse\n{r.firma['name']}",
+                                   [(f"{name}.pdf", pdf, "application/pdf"),
+                                    (f"{name}.xlsx", xlsx,
+                                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")])
+                            res["msgs"].append(("success", f"E-Mail gesendet an {', '.join(an)}"))
+                        except Exception as e:
+                            res["msgs"].append(("error", f"E-Mail fehlgeschlagen: {e}"))
+                    ss.result = res
+
+        if res := ss.get("result"):
+            with st.container(border=True):
+                st.markdown("#### 🎉 Rechnung erstellt")
+                for kind, m in res["msgs"]:
+                    getattr(st, kind)(m)
+                c1, c2 = st.columns(2)
+                c1.download_button("⬇️ PDF", res["pdf"], f"{res['name']}.pdf", "application/pdf",
+                                   width="stretch", type="primary")
+                c2.download_button("⬇️ Excel", res["xlsx"], f"{res['name']}.xlsx",
+                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   width="stretch")
+                if st.button("Neue Rechnung beginnen", width="stretch"):
+                    for k in list(ss.keys()):
+                        if k != "ok":
+                            del ss[k]
+                    st.rerun()
