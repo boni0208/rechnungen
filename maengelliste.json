@@ -1,0 +1,438 @@
+{
+ "quelle": "Mängelliste / Kostenschätzung Schwaller Architekturbüro vom 04.07.2026",
+ "positionen": [
+  {
+   "pos": "221.2",
+   "titel": "Fenster",
+   "schaetzung": 3000,
+   "maengel": [
+    {
+     "nr": "221.2-01",
+     "text": "Sämtliche Fenster einstellen"
+    },
+    {
+     "nr": "221.2-02",
+     "text": "Hebeschiebetüre: Arretierung fehlt"
+    },
+    {
+     "nr": "221.2-03",
+     "text": "Küchenfenster: Fenstergriffe nicht auf gleicher Höhe"
+    },
+    {
+     "nr": "221.2-04",
+     "text": "Wetterschenkel fehlen"
+    }
+   ]
+  },
+  {
+   "pos": "222",
+   "titel": "Spenglerarbeiten",
+   "schaetzung": 1000,
+   "maengel": [
+    {
+     "nr": "222-01",
+     "text": "Dachrinne undicht beim Zusammenschluss an Dachrinne"
+    }
+   ]
+  },
+  {
+   "pos": "223",
+   "titel": "Blitzschutzanlage",
+   "schaetzung": 4000,
+   "maengel": [
+    {
+     "nr": "223-01",
+     "text": "Blitzschutz fehlt (Fertigstellung nur möglich, wenn die Erdung vorbereitet ist)"
+    }
+   ]
+  },
+  {
+   "pos": "226.2",
+   "titel": "Aussendämmung / Fassade",
+   "schaetzung": 17000,
+   "maengel": [
+    {
+     "nr": "226.2-01",
+     "text": "Verputz wurde nicht gestrichen"
+    },
+    {
+     "nr": "226.2-02",
+     "text": "Ausbildung Fassadensockel, Kapillarschnitt fehlt eventuell"
+    },
+    {
+     "nr": "226.2-03",
+     "text": "Eingangspodest: Abdichtung zu Fassade fehlt"
+    },
+    {
+     "nr": "226.2-04",
+     "text": "Teilweise unsaubere Anschlüsse Abrieb an Fensterleibung und beim Sturz"
+    },
+    {
+     "nr": "226.2-05",
+     "text": "Diverse Ausbesserungen von beschädigten und unsauberen Stellen"
+    },
+    {
+     "nr": "226.2-06",
+     "text": "Gerüstarbeiten für Fertigstellung Fassade"
+    }
+   ]
+  },
+  {
+   "pos": "232",
+   "titel": "Elektroarbeiten",
+   "schaetzung": 15000,
+   "maengel": [
+    {
+     "nr": "232-01",
+     "text": "Kabel von Motoren bei den Lamellen richten"
+    },
+    {
+     "nr": "232-02",
+     "text": "Fertigstellung in den Nasszellen nach der Montage der Apparate"
+    },
+    {
+     "nr": "232-03",
+     "text": "Fertigstellung Anschluss Heizung, Boiler, Abwasserpumpe, Waschmaschine und Tumbler"
+    },
+    {
+     "nr": "232-04",
+     "text": "Küche Rückwand: Steckdose montieren und Zuleitung sicherstellen"
+    },
+    {
+     "nr": "232-05",
+     "text": "3 Multimedia-Steckdosen fertig montieren"
+    },
+    {
+     "nr": "232-06",
+     "text": "Raumabluft-Ventilator fehlt"
+    },
+    {
+     "nr": "232-07",
+     "text": "Sicherheitsnachweis (SiNa) erstellen"
+    }
+   ]
+  },
+  {
+   "pos": "242",
+   "titel": "Heizung",
+   "schaetzung": 30000,
+   "maengel": [
+    {
+     "nr": "242-01",
+     "text": "Verteilkasten OG anpassen, damit dieser bündig mit der Wand ist"
+    },
+    {
+     "nr": "242-02",
+     "text": "Wärmepumpe und Boiler liefern und montieren"
+    },
+    {
+     "nr": "242-03",
+     "text": "Zuleitungen Aussengerät zu Untergeschoss fehlen"
+    },
+    {
+     "nr": "242-04",
+     "text": "Inbetriebnahme Heizung"
+    }
+   ]
+  },
+  {
+   "pos": "251.a",
+   "titel": "Sanitäranlagen Apparate",
+   "schaetzung": 30000,
+   "maengel": [
+    {
+     "nr": "251.a-01",
+     "text": "Sanitärapparate und Glastrennwände liefern und montieren"
+    },
+    {
+     "nr": "251.a-02",
+     "text": "Gartenventile liefern und montieren"
+    },
+    {
+     "nr": "251.a-03",
+     "text": "Waschtrog Untergeschoss liefern und montieren"
+    }
+   ]
+  },
+  {
+   "pos": "251.b",
+   "titel": "Sanitäranlagen Diverses",
+   "schaetzung": 20000,
+   "maengel": [
+    {
+     "nr": "251.b-01",
+     "text": "Eventuell müssen Leitungen unterputz neu erstellt werden"
+    },
+    {
+     "nr": "251.b-02",
+     "text": "Anschluss Küche fehlt"
+    },
+    {
+     "nr": "251.b-03",
+     "text": "Kernbohrung für Abluft Dampfabzug Küche und Nasszelle fehlt"
+    },
+    {
+     "nr": "251.b-04",
+     "text": "Rohrdurchführungen im Untergeschoss abdichten"
+    },
+    {
+     "nr": "251.b-05",
+     "text": "Bodenablauf Untergeschoss liefern und montieren"
+    },
+    {
+     "nr": "251.b-06",
+     "text": "Fertigstellung Pumpenschacht inkl. Pumpe liefern und montieren"
+    },
+    {
+     "nr": "251.b-07",
+     "text": "Wasserzuleitung Nebengebäude erstellen"
+    },
+    {
+     "nr": "251.b-08",
+     "text": "Zuleitung Wasser und Abwasser Waschmaschine/Tumbler (Geräte durch Bauherrschaft)"
+    },
+    {
+     "nr": "251.b-09",
+     "text": "Rückstauklappe Kanalisation fehlt"
+    },
+    {
+     "nr": "251.b-10",
+     "text": "Entlüftungsstrang fertigstellen"
+    },
+    {
+     "nr": "251.b-11",
+     "text": "Bau-WC"
+    }
+   ]
+  },
+  {
+   "pos": "251.c",
+   "titel": "Enthärtungsanlage",
+   "schaetzung": 2500,
+   "maengel": [
+    {
+     "nr": "251.c-01",
+     "text": "Lieferung und Montage Enthärtungsanlage"
+    }
+   ]
+  },
+  {
+   "pos": "258",
+   "titel": "Küche",
+   "schaetzung": 200,
+   "maengel": [
+    {
+     "nr": "258-01",
+     "text": "Kittfugen bei Kochfeld fehlen"
+    }
+   ]
+  },
+  {
+   "pos": "271.1",
+   "titel": "Gipserarbeiten innen",
+   "schaetzung": 4000,
+   "maengel": [
+    {
+     "nr": "271.1-01",
+     "text": "Glattstrich Decke im Wohnen ausbessern und neu streichen"
+    },
+    {
+     "nr": "271.1-02",
+     "text": "Ausbesserungen bei Anschluss Fensterrahmen zu Verputz"
+    },
+    {
+     "nr": "271.1-03",
+     "text": "Ausbesserungen bei Steckdosen und Leibungskanten"
+    }
+   ]
+  },
+  {
+   "pos": "272.2",
+   "titel": "Metallbauarbeiten",
+   "schaetzung": 10000,
+   "maengel": [
+    {
+     "nr": "272.2-01",
+     "text": "Geländer Treppe innen fehlt"
+    },
+    {
+     "nr": "272.2-02",
+     "text": "Geländer Balkon OG fehlt"
+    }
+   ]
+  },
+  {
+   "pos": "273.3",
+   "titel": "Innentüren",
+   "schaetzung": 8000,
+   "maengel": [
+    {
+     "nr": "273.3-01",
+     "text": "Innentüren fehlen (total 10 Stück)"
+    }
+   ]
+  },
+  {
+   "pos": "281.0",
+   "titel": "Unterlagsboden",
+   "schaetzung": 500,
+   "maengel": [
+    {
+     "nr": "281.0-01",
+     "text": "Unterlagsboden im UG unter der Treppe ergänzen"
+    },
+    {
+     "nr": "281.0-02",
+     "text": "Wasserschaden UG inkl. Behebung Dampfsperre – Abwicklung über Allianz Versicherung (nicht in Schätzung)"
+    }
+   ]
+  },
+  {
+   "pos": "281.6",
+   "titel": "Plattenarbeiten",
+   "schaetzung": 12000,
+   "maengel": [
+    {
+     "nr": "281.6-01",
+     "text": "Kittfugen fehlen"
+    },
+    {
+     "nr": "281.6-02",
+     "text": "Sockelplatten ergänzen nach der Türenmontage"
+    },
+    {
+     "nr": "281.6-03",
+     "text": "Balkon: Platten fehlen"
+    },
+    {
+     "nr": "281.6-04",
+     "text": "Balkon: Abdichtung mangelhaft"
+    },
+    {
+     "nr": "281.6-05",
+     "text": "Unterschiedliche Fugen Wohnzimmer im Bereich der Schiebetüre"
+    },
+    {
+     "nr": "281.6-06",
+     "text": "Ersatzplatte bei Ventilator Dusche EG"
+    },
+    {
+     "nr": "281.6-07",
+     "text": "Unterschiedliche Höhen bei den Treppenstufen"
+    },
+    {
+     "nr": "281.6-08",
+     "text": "Schlüterschienen Treppe zum Teil höher als die Platten"
+    },
+    {
+     "nr": "281.6-09",
+     "text": "Hohle Stelle bei Treppenstufe"
+    }
+   ]
+  },
+  {
+   "pos": "285",
+   "titel": "Malerarbeiten",
+   "schaetzung": 2000,
+   "maengel": [
+    {
+     "nr": "285-01",
+     "text": "Diverse Ausbesserungsarbeiten"
+    }
+   ]
+  },
+  {
+   "pos": "289",
+   "titel": "Diverse kleinere Arbeiten",
+   "schaetzung": 20800,
+   "maengel": [
+    {
+     "nr": "289-01",
+     "text": "Eventuell verdeckte Mängel beheben"
+    },
+    {
+     "nr": "289-02",
+     "text": "Reserve und Unvorhergesehenes"
+    }
+   ]
+  },
+  {
+   "pos": "291",
+   "titel": "Architekturarbeiten",
+   "schaetzung": 30000,
+   "maengel": [
+    {
+     "nr": "291-01",
+     "text": "Aufnahme der Baumängel"
+    },
+    {
+     "nr": "291-02",
+     "text": "Offerten bei den Unternehmungen einholen, Arbeitsvergabe"
+    },
+    {
+     "nr": "291-03",
+     "text": "Besprechungen mit Bauherrschaft und Unternehmern, Terminprogramm"
+    },
+    {
+     "nr": "291-04",
+     "text": "Bauleitung, Kostenkontrolle und Abrechnung"
+    }
+   ]
+  },
+  {
+   "pos": "421",
+   "titel": "Umgebungsarbeiten",
+   "schaetzung": 30000,
+   "maengel": [
+    {
+     "nr": "421-01",
+     "text": "Verbundsteine fehlen bei Parkplatz Nr. 3"
+    },
+    {
+     "nr": "421-02",
+     "text": "Ostseite: Verbundsteine fehlen, Randabschlüsse erstellen"
+    },
+    {
+     "nr": "421-03",
+     "text": "Randabschlüsse bei Parkplatz von Freisitz fertig erstellen"
+    },
+    {
+     "nr": "421-04",
+     "text": "Humus fehlt (ca. 7.0 m²)"
+    },
+    {
+     "nr": "421-05",
+     "text": "Fundament für Wärmepumpe und Grabarbeiten zu Untergeschoss fehlen"
+    },
+    {
+     "nr": "421-06",
+     "text": "Kontrollschacht zu hoch, muss angepasst werden"
+    },
+    {
+     "nr": "421-07",
+     "text": "Lichtschacht Kellerausgang: Boden fertigstellen, Fensterbank und Abdichtung, Gitterrost fehlt"
+    },
+    {
+     "nr": "421-08",
+     "text": "Sitzplatz: Bodenplatten ergänzen und Anschlüsse fertigstellen"
+    },
+    {
+     "nr": "421-09",
+     "text": "Tritt bei Gartenzugang fehlt"
+    },
+    {
+     "nr": "421-10",
+     "text": "Elektro-Kontrollschacht Höhe anpassen"
+    },
+    {
+     "nr": "421-11",
+     "text": "Humus planieren und Rasen ansäen"
+    },
+    {
+     "nr": "421-12",
+     "text": "Grünstreifen zu Nachbar humusieren"
+    }
+   ]
+  }
+ ]
+}
