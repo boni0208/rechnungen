@@ -240,13 +240,21 @@ def journal(force: bool = False) -> tuple[list[dict], str | None]:
         try:
             ss.jrows, ss.jrows_ts = store().journal()[0], datetime.now().timestamp()
         except Exception as e:
-            return ss.get("jrows", []), str(e)
+            alt_rows = ss.get("jrows")
+            return (alt_rows if isinstance(alt_rows, list) else []), str(e)
+    if not isinstance(ss.get("jrows"), list):
+        ss.pop("jrows", None)
+        return journal(force=True)
     return ss.jrows, None
 
 
-def journal_setzen(rows: list[dict]) -> None:
+def journal_setzen(rows) -> None:
     """Nach dem Schreiben: lokale Kopie sofort aktualisieren (kein Neuladen nötig)."""
-    ss.jrows, ss.jrows_ts = rows, datetime.now().timestamp()
+    if isinstance(rows, list):
+        ss.jrows, ss.jrows_ts = rows, datetime.now().timestamp()
+    else:                                   # ältere storage.py liefert keine Liste → neu laden
+        ss.pop("jrows", None)
+        journal(force=True)
     ss.pop("journal_editor", None)
     ss.editor_v = ss.get("editor_v", 0) + 1
 
@@ -527,7 +535,7 @@ with t_neu:
                                 "rechnungs_nr": r.nr, "rechnungsdatum": dstr(r.datum),
                                 "positionen": "; ".join(g.bkp or "Zusatz" for g in r.gruppen),
                                 "total_chf": f"{r.total:.2f}", "erstellt": jetzt()})
-                            journal_setzen(info["rows"])
+                            journal_setzen(info.get("rows"))
                             res["msgs"].append(("success", f"Als Entwurf in GitHub gespeichert: {info['pdf']}. "
                                                            "Im Tab «📋 Übersicht» als final abhaken, wenn sie definitiv ist."))
                         except Exception as e:
