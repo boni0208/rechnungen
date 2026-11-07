@@ -18,18 +18,24 @@ Mängelliste (Pos. 273.3, Mängelpunkt 273.3-01). Ohne MWST-Nr. wird keine MWST 
 
 ## Einrichten (einmalig, ca. 20 Minuten)
 
-### 1. GitHub-Repo
-1. Auf github.com ein neues **privates** Repo anlegen, z.B. `hausbau-rechnungen`.
-2. Alle Dateien aus diesem Ordner hochladen (*Add file → Upload files*). **Nicht** hochladen: eine echte `secrets.toml`.
+### 1. Zwei GitHub-Repos
+| Repo | Sichtbarkeit | Inhalt |
+|---|---|---|
+| `hausbau-rechnungen` | öffentlich | dieser App-Code (keine persönlichen Daten) |
+| `hausbau-rechnungen-daten` | **privat** | erstellte Rechnungen + Journal (legt die App selbst an) |
+
+1. Öffentliches Repo `hausbau-rechnungen` anlegen und alle Dateien aus diesem Ordner hochladen.
+   **Nie** eine `secrets.toml` mit echten Werten hochladen – Firmendaten, IBAN und Token gehören nur in die Streamlit-Secrets.
+2. Privates Repo `hausbau-rechnungen-daten` anlegen, mit «Add a README file» (damit es nicht leer ist).
 
 ### 2. GitHub-Token (damit die App Rechnungen speichern darf)
-*Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token*
-- Repository access: **Only select repositories** → `hausbau-rechnungen`
+*Profilbild → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token*
+- Repository access: **Only select repositories** → nur `hausbau-rechnungen-daten`
 - Permissions → Repository → **Contents: Read and write**
-- Token kopieren.
+- Token kopieren (wird nur einmal angezeigt).
 
-Die Rechnungen landen im Branch `rechnungen` (wird automatisch angelegt), Ordner `rechnungen/<Jahr>/`,
-plus `rechnungen/journal.csv` als Liste aller Rechnungen. Getrennter Branch = die App startet beim Speichern nicht neu.
+Die Rechnungen landen im privaten Repo im Branch `rechnungen` (wird automatisch angelegt),
+Ordner `rechnungen/<Jahr>/`, plus `rechnungen/journal.csv` als Liste aller Rechnungen.
 
 ### 3. App veröffentlichen (Streamlit Community Cloud, gratis)
 1. Auf share.streamlit.io mit GitHub anmelden → **Create app** → Repo `hausbau-rechnungen`, Branch `main`, Datei `app.py`.
