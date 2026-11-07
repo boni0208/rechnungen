@@ -22,7 +22,12 @@ VORLAGEN = {
 }
 ZUSATZ = "➕ Zusatzleistung (nicht in der Mängelliste)"
 
-DATA = json.loads((Path(__file__).parent / "data" / "maengelliste.json").read_text(encoding="utf-8"))
+_HERE = Path(__file__).parent
+_JSON = next((p for p in (_HERE / "data" / "maengelliste.json", _HERE / "maengelliste.json") if p.exists()), None)
+if _JSON is None:
+    st.error("Datei «maengelliste.json» fehlt im Repo. Bitte in den Ordner «data» oder direkt neben app.py hochladen.")
+    st.stop()
+DATA = json.loads(_JSON.read_text(encoding="utf-8"))
 POS = {p["pos"]: p for p in DATA["positionen"]}
 S = st.secrets
 ss = st.session_state
