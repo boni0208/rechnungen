@@ -85,6 +85,7 @@ div[data-testid="stExpander"] details {{border-radius: 12px;}}
 .st-key-rtab button[kind="tertiary"], .st-key-rtab [data-testid="stBaseButton-tertiary"] {{
         padding: 0 !important; min-height: 0 !important; color: {NAVY} !important; text-align: left;
         font-size: .85rem; text-decoration: underline; text-underline-offset: 3px; line-height: 1.25;}}
+.st-key-vorschau img {{border: 1px solid #C9D6E6; border-radius: 10px; box-shadow: 0 2px 10px rgba(31,58,95,.08);}}
 .rth {{font-size: .75rem; font-weight: 700; color: #4a5b70; text-transform: uppercase; letter-spacing: .03em;}}
 .rth.r {{text-align: right;}}
 .rth.c {{text-align: center;}}
@@ -347,6 +348,23 @@ def jetzt() -> str:
         return datetime.now().strftime("%d.%m.%Y %H:%M")
 
 
+@st.cache_data(show_spinner=False, max_entries=30)
+def pdf_als_bilder(pdf: bytes) -> list[bytes]:
+    """PDF-Seiten als PNG (funktioniert in jedem Browser, auch am Handy)."""
+    try:
+        import pymupdf
+    except ImportError:
+        try:
+            import fitz as pymupdf
+        except ImportError:
+            return []
+    try:
+        doc = pymupdf.open(stream=pdf, filetype="pdf")
+        return [p.get_pixmap(dpi=110).tobytes("png") for p in doc]
+    except Exception:
+        return []
+
+
 def journal(force: bool = False) -> tuple[list[dict], str | None]:
     """Journal aus GitHub, in der Sitzung zwischengespeichert (max. 60 s alt)."""
     if not store():
@@ -511,12 +529,14 @@ if ANSICHT == "uebersicht":
                         st.button(f"✏️ Entwurf {wahl} bearbeiten", key=f"edit_{wahl}", on_click=cb_entwurf_laden,
                                   args=(wahl,), width="stretch")
                     if pdf:
-                        import base64
-                        b64 = base64.b64encode(pdf).decode()
-                        st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="620" '
-                                    f'style="border:1px solid #C9D6E6;border-radius:10px;"></iframe>',
-                                    unsafe_allow_html=True)
-                        st.caption("Wird die Vorschau auf dem Handy nicht angezeigt: PDF herunterladen.")
+                        bilder = pdf_als_bilder(pdf)
+                        if bilder:
+                            with st.container(key="vorschau"):
+                                for i, png in enumerate(bilder, 1):
+                                    st.image(png, width="stretch",
+                                             caption=f"Seite {i} von {len(bilder)}" if len(bilder) > 1 else None)
+                        else:
+                            st.caption("Vorschau nicht verfügbar – bitte PDF herunterladen.")
                 except Exception as e:
                     st.error(f"Rechnung konnte nicht geladen werden: {e}")
 

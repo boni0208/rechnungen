@@ -280,7 +280,7 @@ def als_pdf(r: Rechnung) -> bytes:
     hdr = ParagraphStyle("hd", parent=bold, textColor=colors.white)
     hdrr = ParagraphStyle("hdr", parent=hdr, alignment=2)
     hdrc = ParagraphStyle("hdc", parent=hdr, alignment=1)
-    data = [[P("Pos.-Nr.", hdr), P("Leistung", hdr), P("Menge", hdrr), P("Einheit", hdrc), P("Ansatz CHF", hdrr), P("Betrag CHF", hdrr)]]
+    data = [[P("Pos.", hdr), P("Leistung", hdr), P("Menge", hdrr), P("Einheit", hdrc), P("Ansatz CHF", hdrr), P("Betrag CHF", hdrr)]]
     styles = [("BACKGROUND", (0, 0), (-1, 0), NAVY), ("VALIGN", (0, 0), (-1, -1), "TOP"),
               ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]
     rows = r.tabellenzeilen()
