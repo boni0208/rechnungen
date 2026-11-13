@@ -55,6 +55,31 @@ st.markdown(f"""
 div[data-testid="stBaseButton-primary"] button, button[kind="primary"],
 button[data-testid="stBaseButton-primary"] {{background: {NAVY}; border-color: {NAVY};}}
 div[data-testid="stExpander"] details {{border-radius: 12px;}}
+.st-key-rtab [data-testid="stHorizontalBlock"] {{flex-wrap: nowrap !important; gap: .35rem !important;
+        border-bottom: 1px solid #E3EAF3; padding: 4px 0;}}
+.st-key-rtab [data-testid="stColumn"] {{min-width: 0 !important;}}
+@media (max-width: 640px) {{
+  .st-key-rtab [data-testid="stColumn"] {{width: auto !important; flex: 0.9 1 0 !important;}}
+  .st-key-rtab [data-testid="stColumn"]:nth-child(1) {{flex: 3.6 1 0 !important;}}
+  .st-key-rtab [data-testid="stColumn"]:nth-child(2) {{flex: 1.6 1 0 !important;}}
+}}
+.st-key-rtab [data-testid="stColumn"]:nth-child(3), .st-key-rtab [data-testid="stColumn"]:nth-child(4) {{
+        display: flex; justify-content: center;}}
+.st-key-rtab [data-testid="stColumn"]:nth-child(1) [data-testid="stVerticalBlock"] {{gap: .15rem !important;}}
+.st-key-rtab [data-testid="stMarkdownContainer"] p, .st-key-rtab [data-testid="stMarkdown"] {{margin: 0 !important;}}
+.st-key-rtab [data-testid="stMarkdownContainer"] {{margin-bottom: 0 !important;}}
+.st-key-rtab [data-testid="stCheckbox"] {{margin: 0 !important; min-height: 0;}}
+.st-key-rtab [data-testid="stCheckbox"] label {{padding: 0 !important; margin: 0 !important;}}
+.st-key-rtab button[kind="tertiary"], .st-key-rtab [data-testid="stBaseButton-tertiary"] {{
+        padding: 0 !important; min-height: 0 !important; color: {NAVY} !important;
+        font-size: .82rem; text-decoration: underline; text-underline-offset: 3px;}}
+.rth {{font-size: .78rem; font-weight: 700; color: #4a5b70; text-transform: uppercase; letter-spacing: .03em;}}
+.rcell {{font-size: .9rem; line-height: 1.35; padding: 2px 0;}}
+.rsub {{font-size: .78rem; color: #4a5b70;}}
+.rnum {{text-align: right; font-variant-numeric: tabular-nums; font-weight: 600;}}
+.badge {{display: inline-block; border-radius: 999px; padding: 0 7px; font-size: .7rem; margin-left: 4px;}}
+.badge.draft {{background: #FFF2CC; color: #7a5a00;}}
+.badge.fin {{background: #DDF2E3; color: #1e6b37;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -379,30 +404,39 @@ if ANSICHT == "uebersicht":
         if not rows:
             st.caption("Noch keine Rechnungen erstellt.")
         else:
-            offen = [r for r in reversed(rows) if r.get("final") != "ja"]
-            if offen:
-                st.markdown(f"##### ✏️ Offene Entwürfe ({len(offen)})")
-                for r in offen:
-                    with st.container(border=True):
-                        c1, c2 = st.columns([3, 1.3], vertical_alignment="center")
-                        c1.markdown(f"**Nr. {r['rechnungs_nr']}** · {r['positionen']}  \n"
-                                    f"CHF {r['total_chf']} · erstellt {r['erstellt']}")
-                        c2.button("✏️ Bearbeiten", key=f"bearb_{r['rechnungs_nr']}", on_click=cb_entwurf_laden,
-                                  args=(r["rechnungs_nr"],), type="primary", width="stretch")
-            st.markdown("##### Alle Rechnungen")
-            st.caption("Final abhaken bzw. 🗑️ markieren und danach unten **💾 Änderungen speichern**.")
-            tabelle = [{"Final": r.get("final") == "ja", "Löschen": False, "Nr.": r["rechnungs_nr"],
-                        "Datum": r["rechnungsdatum"], "Positionen": r["positionen"], "Total CHF": r["total_chf"],
-                        "Erstellt": r["erstellt"], "Final am": r.get("final_am", "")} for r in reversed(rows)]
-            edit = st.data_editor(
-                tabelle, hide_index=True, width="stretch", key=f"journal_editor_{ss.get('editor_v', 0)}",
-                disabled=["Nr.", "Datum", "Positionen", "Total CHF", "Erstellt", "Final am"],
-                column_config={
-                    "Final": st.column_config.CheckboxColumn("Final", help="Abhaken = definitiv, Nummer ist vergeben"),
-                    "Löschen": st.column_config.CheckboxColumn("🗑️", help="Entwurf löschen (finale Rechnungen nicht)")})
-            alt = {z["Nr."]: z["Final"] for z in tabelle}
-            final_neu = {z["Nr."]: bool(z["Final"]) for z in edit if alt.get(z["Nr."]) != bool(z["Final"])}
-            loeschen = [z["Nr."] for z in edit if z["Löschen"]]
+            v = ss.get("editor_v", 0)
+            st.caption("«Entwurf bearbeiten» antippen zum Ändern · **Final** abhaken bzw. **🗑️** markieren und unten "
+                       "**💾 Änderungen speichern**.")
+            SP = [3.6, 1.6, 0.9, 0.9]
+            with st.container(key="rtab"):
+                h = st.columns(SP, vertical_alignment="center")
+                for c, t in zip(h, ["Rechnung", "CHF", "Final", "🗑️"]):
+                    c.markdown(f'<div class="rth">{t}</div>', unsafe_allow_html=True)
+                final_neu, loeschen = {}, []
+                for r in reversed(rows):
+                    nr, ist_fin = r["rechnungs_nr"], r.get("final") == "ja"
+                    with st.container(key=f"rz_{nr}_{v}"):
+                        c = st.columns(SP, vertical_alignment="center")
+                        with c[0]:
+                            status = (f'<span class="badge fin">final {r.get("final_am", "")[:10]}</span>' if ist_fin
+                                      else '<span class="badge draft">Entwurf</span>')
+                            st.markdown(f'<div class="rcell"><b>{nr}</b> · {r["rechnungsdatum"]} {status}<br>'
+                                        f'<span class="rsub">{r["positionen"]}</span></div>', unsafe_allow_html=True)
+                            if not ist_fin:
+                                st.button("Entwurf bearbeiten", key=f"bearb_{nr}_{v}", type="tertiary",
+                                          on_click=cb_entwurf_laden, args=(nr,))
+                        try:
+                            tot = chf(float(r["total_chf"]))
+                        except ValueError:
+                            tot = r["total_chf"]
+                        c[1].markdown(f'<div class="rcell rnum">{tot}</div>', unsafe_allow_html=True)
+                        f_neu = c[2].checkbox("Final", value=ist_fin, key=f"fin_{nr}_{v}", label_visibility="collapsed")
+                        d_neu = c[3].checkbox("Löschen", value=False, key=f"del_{nr}_{v}", disabled=ist_fin,
+                                              label_visibility="collapsed")
+                        if f_neu != ist_fin:
+                            final_neu[nr] = f_neu
+                        if d_neu:
+                            loeschen.append(nr)
             if final_neu or loeschen:
                 teile = []
                 if final_neu:
