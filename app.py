@@ -209,7 +209,7 @@ def cb_gruppe_loeschen(gid: str) -> None:
     ss.gruppen = [g for g in ss.gruppen if g["id"] != gid]
 
 
-BEHALTEN = {"ok", "jrows", "jrows_ts", "editor_v", "pdf_cache"}
+BEHALTEN = {"ok", "jrows", "jrows_ts", "editor_v", "pdf_cache", "ansicht"}
 
 
 def formular_leeren() -> None:
@@ -273,7 +273,8 @@ def cb_entwurf_laden(nr: str) -> None:
         d = aus_json(raw) if raw else aus_excel(store().get(r0["excel"])[0])
         d["nr"] = nr
         formular_fuellen(d)
-        ss.lade_msg = ("success", f"Entwurf Nr. {nr} geladen – im Tab «✏️ Entwurf {nr}» bearbeiten und neu erstellen.")
+        ss.lade_msg = ("success", f"Entwurf Nr. {nr} geladen – jetzt bearbeiten und mit «✅ Rechnung erstellen» speichern.")
+        ss.ansicht = "rechnung"
     except Exception as ex:
         ss.lade_msg = ("error", f"Entwurf {nr} konnte nicht geladen werden: {ex}")
 
@@ -344,10 +345,27 @@ def naechste_nr() -> str:
 # ------------------------------------------------------------------ Kopf + Anleitung
 hero("Firma Boniface · Hausbau Gerlafingen · Grundlage: Mängelliste Architekt vom 04.07.2026")
 
-rows, jerr = journal()
-t_neu, t_liste = st.tabs([f"✏️ Entwurf {ss.edit_nr}" if ss.get("edit_nr") else "🧾 Rechnung", "📋 Übersicht"])
+# Eingaben behalten, auch wenn die Ansicht «Übersicht» offen ist (Streamlit löscht sonst nicht angezeigte Felder)
+_FELDER = ("_text", "_menge", "_einheit", "_ansatz", "_bezug", "_unter", "_titel", "_schnell", "_mitpreis")
+for _k in list(ss.keys()):
+    if (_k in ("nr", "datum", "von", "bis", "empf_name", "empf_strasse", "empf_plz_ort", "zusatz_titel")
+            or _k.endswith(_FELDER) or "_m_" in _k):
+        ss[_k] = ss[_k]
 
-with t_liste:
+if _ziel := ss.pop("goto", None):          # ✏️ in der Übersichtstabelle angetippt
+    cb_entwurf_laden(_ziel)
+
+rows, jerr = journal()
+ss.setdefault("ansicht", "rechnung")
+if ss.get("ansicht") is None:             # Segment abgewählt → zurück zur Rechnung
+    ss.ansicht = "rechnung"
+st.segmented_control(
+    "Ansicht", ["rechnung", "uebersicht"], key="ansicht", label_visibility="collapsed", width="stretch",
+    format_func=lambda o: (f"✏️ Entwurf {ss.edit_nr}" if ss.get("edit_nr") else "🧾 Rechnung") if o == "rechnung"
+    else f"📋 Übersicht ({len(rows)})")
+ANSICHT = ss.get("ansicht") or "rechnung"
+
+if ANSICHT == "uebersicht":
     if not store():
         st.warning(f"GitHub-Ablage ist noch nicht eingerichtet: {github_status()}  \n"
                    "Korrigieren unter *Manage app → ⋮ → Settings → Secrets*, danach die Seite neu laden.")
@@ -364,15 +382,28 @@ with t_liste:
         if not rows:
             st.caption("Noch keine Rechnungen erstellt.")
         else:
-            tabelle = [{"Final": r.get("final") == "ja", "Löschen": False, "Nr.": r["rechnungs_nr"],
+            st.caption("✏️ antippen = Entwurf bearbeiten · Final abhaken bzw. 🗑️ markieren und unten speichern.")
+            tabelle = [{"✏️": False, "Final": r.get("final") == "ja", "Löschen": False, "Nr.": r["rechnungs_nr"],
                         "Datum": r["rechnungsdatum"], "Positionen": r["positionen"], "Total CHF": r["total_chf"],
                         "Erstellt": r["erstellt"], "Final am": r.get("final_am", "")} for r in reversed(rows)]
             edit = st.data_editor(
                 tabelle, hide_index=True, width="stretch", key=f"journal_editor_{ss.get('editor_v', 0)}",
                 disabled=["Nr.", "Datum", "Positionen", "Total CHF", "Erstellt", "Final am"],
                 column_config={
+                    "✏️": st.column_config.CheckboxColumn("✏️", help="Entwurf öffnen und bearbeiten", width="small"),
                     "Final": st.column_config.CheckboxColumn("Final", help="Abhaken = definitiv, Nummer ist vergeben"),
                     "Löschen": st.column_config.CheckboxColumn("🗑️", help="Entwurf löschen (finale Rechnungen nicht)")})
+            bearbeiten = [z["Nr."] for z in edit if z.get("✏️")]
+            if bearbeiten:
+                ziel = next(r for r in rows if r["rechnungs_nr"] == bearbeiten[0])
+                ss.editor_v = ss.get("editor_v", 0) + 1
+                if ziel.get("final") == "ja":
+                    ss.lade_msg_liste = f"Rechnung {bearbeiten[0]} ist final und kann nicht bearbeitet werden."
+                else:
+                    ss.goto = bearbeiten[0]
+                st.rerun()
+            if m := ss.pop("lade_msg_liste", None):
+                st.warning(m)
             alt = {z["Nr."]: z["Final"] for z in tabelle}
             final_neu = {z["Nr."]: bool(z["Final"]) for z in edit if alt.get(z["Nr."]) != bool(z["Final"])}
             loeschen = [z["Nr."] for z in edit if z["Löschen"]]
@@ -426,8 +457,6 @@ with t_liste:
                     if r0.get("final") != "ja":
                         st.button(f"✏️ Entwurf {wahl} bearbeiten", key=f"edit_{wahl}", on_click=cb_entwurf_laden,
                                   args=(wahl,), width="stretch")
-                    if (m := ss.get("lade_msg")) and m[0] == "success" and ss.get("edit_nr") == wahl:
-                        st.success(m[1])
                     if pdf:
                         import base64
                         b64 = base64.b64encode(pdf).decode()
@@ -439,7 +468,7 @@ with t_liste:
                     st.error(f"Rechnung konnte nicht geladen werden: {e}")
 
 
-with t_neu:
+if ANSICHT == "rechnung":
     with st.expander("ℹ️ So funktioniert's", expanded=not ss.gruppen):
         st.markdown(
             "1. **Rechnung** – Datum und Ausführungszeitraum prüfen. Die Nummer wird automatisch vorgeschlagen.\n"
@@ -451,8 +480,8 @@ with t_neu:
             "Dachrinne undicht beim Zusammenschluss? Als kurze Liste.»*), Antwort kopieren und bei "
             "*Leistungen als Text einfügen* hineinkopieren → jeder Punkt wird eine Zeile.\n"
             "5. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.\n"
-            "6. **Übersicht** – im Tab *📋 Übersicht* Rechnungen ansehen, als **final** abhaken oder Entwürfe löschen. "
-            "Entwürfe lassen sich mit *✏️ bearbeiten* wieder öffnen, ändern und neu erstellen. "
+            "6. **Übersicht** – in der *📋 Übersicht* Rechnungen ansehen, als **final** abhaken oder Entwürfe löschen. "
+"Entwürfe mit ✏️ antippen → sie öffnen sich direkt zum Bearbeiten. "
             "Jeder Entwurf behält seine Nummer; neue Rechnungen erhalten automatisch die kleinste freie Nummer. "
             "Wird ein Entwurf gelöscht, wird seine Nummer wieder frei.\n\n"
             "💡 Material getrennt von der Arbeit erfassen (z.B. *11 Stk. à 525.–* und *Montage pauschal*) – das will die Bank sehen.")
@@ -651,7 +680,7 @@ with t_neu:
                             ss.edit_nr = r.nr
                             journal_setzen(info.get("rows"))
                             res["msgs"].append(("success", f"Als Entwurf in GitHub gespeichert: {info['pdf']}. "
-                                                           "Im Tab «📋 Übersicht» als final abhaken, wenn sie definitiv ist."))
+                                                           "In der «📋 Übersicht» als final abhaken, wenn sie definitiv ist."))
                         except Exception as e:
                             txt = str(e)
                             if "401" in txt:
