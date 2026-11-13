@@ -441,9 +441,15 @@ if ANSICHT == "uebersicht":
                         except ValueError:
                             tot = r["total_chf"]
                         c[1].markdown(f'<div class="rcell rnum">{tot}</div>', unsafe_allow_html=True)
-                        f_neu = c[2].checkbox("Final", value=ist_fin, key=f"fin_{nr}_{v}", label_visibility="collapsed")
-                        d_neu = c[3].checkbox("Löschen", value=False, key=f"del_{nr}_{v}", disabled=ist_fin,
+                        # Final und Löschen schliessen sich gegenseitig aus
+                        f_akt = ss.get(f"fin_{nr}_{v}", ist_fin)
+                        d_akt = ss.get(f"del_{nr}_{v}", False)
+                        f_neu = c[2].checkbox("Final", value=ist_fin, key=f"fin_{nr}_{v}", disabled=d_akt,
                                               label_visibility="collapsed")
+                        d_neu = c[3].checkbox("Löschen", value=False, key=f"del_{nr}_{v}", disabled=f_akt,
+                                              label_visibility="collapsed")
+                        if f_neu and d_neu:              # Sicherheitsnetz
+                            d_neu = False
                         if ist_fin:
                             c[4].markdown(f'<div class="rsub">final am<br>{r.get("final_am", "")[:10]}</div>',
                                           unsafe_allow_html=True)
