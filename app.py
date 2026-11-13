@@ -352,9 +352,6 @@ for _k in list(ss.keys()):
             or _k.endswith(_FELDER) or "_m_" in _k):
         ss[_k] = ss[_k]
 
-if _ziel := ss.pop("goto", None):          # ✏️ in der Übersichtstabelle angetippt
-    cb_entwurf_laden(_ziel)
-
 rows, jerr = journal()
 ss.setdefault("ansicht", "rechnung")
 if ss.get("ansicht") is None:             # Segment abgewählt → zurück zur Rechnung
@@ -382,28 +379,27 @@ if ANSICHT == "uebersicht":
         if not rows:
             st.caption("Noch keine Rechnungen erstellt.")
         else:
-            st.caption("✏️ antippen = Entwurf bearbeiten · Final abhaken bzw. 🗑️ markieren und unten speichern.")
-            tabelle = [{"✏️": False, "Final": r.get("final") == "ja", "Löschen": False, "Nr.": r["rechnungs_nr"],
+            offen = [r for r in reversed(rows) if r.get("final") != "ja"]
+            if offen:
+                st.markdown(f"##### ✏️ Offene Entwürfe ({len(offen)})")
+                for r in offen:
+                    with st.container(border=True):
+                        c1, c2 = st.columns([3, 1.3], vertical_alignment="center")
+                        c1.markdown(f"**Nr. {r['rechnungs_nr']}** · {r['positionen']}  \n"
+                                    f"CHF {r['total_chf']} · erstellt {r['erstellt']}")
+                        c2.button("✏️ Bearbeiten", key=f"bearb_{r['rechnungs_nr']}", on_click=cb_entwurf_laden,
+                                  args=(r["rechnungs_nr"],), type="primary", width="stretch")
+            st.markdown("##### Alle Rechnungen")
+            st.caption("Final abhaken bzw. 🗑️ markieren und danach unten **💾 Änderungen speichern**.")
+            tabelle = [{"Final": r.get("final") == "ja", "Löschen": False, "Nr.": r["rechnungs_nr"],
                         "Datum": r["rechnungsdatum"], "Positionen": r["positionen"], "Total CHF": r["total_chf"],
                         "Erstellt": r["erstellt"], "Final am": r.get("final_am", "")} for r in reversed(rows)]
             edit = st.data_editor(
                 tabelle, hide_index=True, width="stretch", key=f"journal_editor_{ss.get('editor_v', 0)}",
                 disabled=["Nr.", "Datum", "Positionen", "Total CHF", "Erstellt", "Final am"],
                 column_config={
-                    "✏️": st.column_config.CheckboxColumn("✏️", help="Entwurf öffnen und bearbeiten", width="small"),
                     "Final": st.column_config.CheckboxColumn("Final", help="Abhaken = definitiv, Nummer ist vergeben"),
                     "Löschen": st.column_config.CheckboxColumn("🗑️", help="Entwurf löschen (finale Rechnungen nicht)")})
-            bearbeiten = [z["Nr."] for z in edit if z.get("✏️")]
-            if bearbeiten:
-                ziel = next(r for r in rows if r["rechnungs_nr"] == bearbeiten[0])
-                ss.editor_v = ss.get("editor_v", 0) + 1
-                if ziel.get("final") == "ja":
-                    ss.lade_msg_liste = f"Rechnung {bearbeiten[0]} ist final und kann nicht bearbeitet werden."
-                else:
-                    ss.goto = bearbeiten[0]
-                st.rerun()
-            if m := ss.pop("lade_msg_liste", None):
-                st.warning(m)
             alt = {z["Nr."]: z["Final"] for z in tabelle}
             final_neu = {z["Nr."]: bool(z["Final"]) for z in edit if alt.get(z["Nr."]) != bool(z["Final"])}
             loeschen = [z["Nr."] for z in edit if z["Löschen"]]
@@ -481,7 +477,7 @@ if ANSICHT == "rechnung":
             "*Leistungen als Text einfügen* hineinkopieren → jeder Punkt wird eine Zeile.\n"
             "5. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.\n"
             "6. **Übersicht** – in der *📋 Übersicht* Rechnungen ansehen, als **final** abhaken oder Entwürfe löschen. "
-"Entwürfe mit ✏️ antippen → sie öffnen sich direkt zum Bearbeiten. "
+"Offene Entwürfe mit **✏️ Bearbeiten** wieder öffnen und ändern. "
             "Jeder Entwurf behält seine Nummer; neue Rechnungen erhalten automatisch die kleinste freie Nummer. "
             "Wird ein Entwurf gelöscht, wird seine Nummer wieder frei.\n\n"
             "💡 Material getrennt von der Arbeit erfassen (z.B. *11 Stk. à 525.–* und *Montage pauschal*) – das will die Bank sehen.")
