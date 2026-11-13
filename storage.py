@@ -10,7 +10,7 @@ import requests
 API = "https://api.github.com"
 JOURNAL = "rechnungen/journal.csv"
 JOURNAL_COLS = ["rechnungs_nr", "rechnungsdatum", "positionen", "total_chf", "excel", "pdf",
-                "erstellt", "final", "final_am"]
+                "erstellt", "final", "final_am", "daten"]
 
 
 class RechnungFinal(Exception):
@@ -103,14 +103,19 @@ class GitHubStore:
 
     @staticmethod
     def naechste_nr_aus(rows: list[dict], start: int) -> int:
-        """Nächste Nummer = höchste FINALE Nummer + 1. Entwürfe werden wiederverwendet/überschrieben."""
-        finals = [_nr(r) for r in rows if ist_final(r)]
-        return max(finals + [start - 1]) + 1
+        """Kleinste freie Nummer ab START_NR. Entwürfe und finale Rechnungen behalten ihre Nummer,
+        gelöschte Entwürfe hinterlassen keine Lücke (ihre Nummer wird wieder vergeben)."""
+        belegt = {_nr(r) for r in rows}
+        n = start
+        while n in belegt:
+            n += 1
+        return n
 
     def naechste_nr(self, start: int) -> int:
         return self.naechste_nr_aus(self.journal()[0], start)
 
-    def speichern(self, nr: str, name: str, xlsx: bytes, pdf: bytes, eintrag: dict) -> dict:
+    def speichern(self, nr: str, name: str, xlsx: bytes, pdf: bytes, eintrag: dict,
+                  daten: bytes | None = None) -> dict:
         rows, jsha = self.journal()
         alt = next((r for r in rows if r.get("rechnungs_nr") == str(nr)), None)
         if alt and ist_final(alt):
@@ -118,11 +123,22 @@ class GitHubStore:
         self.ensure_branch()
         jahr = eintrag["rechnungsdatum"][-4:]
         p_x, p_p = f"rechnungen/{jahr}/{name}.xlsx", f"rechnungen/{jahr}/{name}.pdf"
-        for p, data in ((p_x, xlsx), (p_p, pdf)):
+        p_j = f"rechnungen/{jahr}/{name}.json" if daten is not None else ""
+        dateien = [(p_x, xlsx), (p_p, pdf)] + ([(p_j, daten)] if daten is not None else [])
+        for p, data in dateien:
             _, sha = self.get(p)
             self.put(p, data, f"Rechnung {nr}", sha)
+        if alt:                                    # Entwurf überarbeitet → alte Dateien mit anderem Namen weg
+            neu = {p_x, p_p, p_j}
+            for k in ("excel", "pdf", "daten"):
+                p = alt.get(k)
+                if p and p not in neu:
+                    try:
+                        self.delete(p, f"Rechnung {nr}: alte Entwurfsdatei entfernt")
+                    except Exception:
+                        pass
         rows = [r for r in rows if r.get("rechnungs_nr") != str(nr)]
-        rows.append({**eintrag, "excel": p_x, "pdf": p_p, "final": "nein", "final_am": ""})
+        rows.append({**eintrag, "excel": p_x, "pdf": p_p, "daten": p_j, "final": "nein", "final_am": ""})
         url = self._write_journal(rows, jsha, f"Journal: Rechnung {nr} (Entwurf)")
         return {"excel": p_x, "pdf": p_p, "journal_url": url, "rows": sorted(rows, key=_nr)}
 
@@ -148,7 +164,7 @@ class GitHubStore:
         if finals:
             raise RechnungFinal(f"Rechnung {', '.join(finals)} ist final – zuerst den Final-Haken entfernen.")
         for r in weg:
-            for p in (r.get("excel"), r.get("pdf")):
+            for p in (r.get("excel"), r.get("pdf"), r.get("daten")):
                 if p:
                     self.delete(p, f"Rechnung {r['rechnungs_nr']} gelöscht")
         rows = [r for r in rows if r.get("rechnungs_nr") not in nrs]

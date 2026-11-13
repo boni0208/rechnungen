@@ -112,6 +112,8 @@ def store():
 
 # ------------------------------------------------------------------ Zustand & Callbacks
 ss.setdefault("gruppen", [])   # [{id, bkp, titel, zeilen:[zid], auto:{mangel_nr: zid}}]
+if ss.pop("nr_neu", False):    # neue Nummer anfordern (wird unten vorgeschlagen)
+    ss.pop("nr", None)
 for _g in ss.gruppen:          # Sitzungen aus älteren App-Versionen nachrüsten
     _g.setdefault("auto", {})
     _g.setdefault("zeilen", [])
@@ -207,6 +209,80 @@ def cb_gruppe_loeschen(gid: str) -> None:
     ss.gruppen = [g for g in ss.gruppen if g["id"] != gid]
 
 
+BEHALTEN = {"ok", "jrows", "jrows_ts", "editor_v", "pdf_cache"}
+
+
+def formular_leeren() -> None:
+    for k in list(ss.keys()):
+        if k not in BEHALTEN:
+            del ss[k]
+
+
+def formular_daten() -> dict:
+    """Aktuelle Eingaben als speicherbares Dict (für späteres Weiterbearbeiten)."""
+    return {"version": 1, "nr": ss.get("nr", ""), "datum": ss.get("datum", date.today()).isoformat(),
+            "von": ss.get("von", date.today()).isoformat(), "bis": ss.get("bis", date.today()).isoformat(),
+            "empfaenger": {"name": ss.get("empf_name", ""), "strasse": ss.get("empf_strasse", ""),
+                           "plz_ort": ss.get("empf_plz_ort", "")},
+            "gruppen": [{"bkp": g["bkp"], "titel": ss.get(f"{g['id']}_titel", g["titel"]),
+                         "zeilen": [{"text": ss.get(f"{z}_text", ""), "menge": ss.get(f"{z}_menge"),
+                                     "einheit": ss.get(f"{z}_einheit", ""), "ansatz": ss.get(f"{z}_ansatz"),
+                                     "bezug": ss.get(f"{z}_bezug", ""), "unter": ss.get(f"{z}_unter", "")}
+                                    for z in g["zeilen"]]} for g in ss.gruppen]}
+
+
+def formular_fuellen(d: dict) -> None:
+    formular_leeren()
+    ss.nr = str(d.get("nr", ""))
+    ss.datum, ss.von, ss.bis = d["datum"], d["von"], d["bis"]
+    e = d.get("empfaenger") or {}
+    ss.empf_name, ss.empf_strasse, ss.empf_plz_ort = e.get("name", ""), e.get("strasse", ""), e.get("plz_ort", "")
+    ss.gruppen = []
+    for g in d.get("gruppen", []):
+        bkp = g.get("bkp", "") if g.get("bkp", "") in POS else ""
+        gueltig = [m["nr"] for m in POS[bkp]["maengel"]] if bkp else []
+        gid = uuid.uuid4().hex[:8]
+        grp = {"id": gid, "bkp": bkp, "titel": g.get("titel", ""), "zeilen": [], "auto": {}}
+        ss[f"{gid}_titel"] = g.get("titel", "")
+        for z in g.get("zeilen", []):
+            bezug = z.get("bezug", "") if z.get("bezug", "") in gueltig else ""
+            menge = z.get("menge")
+            zid = neue_zeile(z.get("text", ""), float(menge) if menge is not None else 1.0,
+                             z.get("einheit") or "pauschal",
+                             float(z["ansatz"]) if z.get("ansatz") is not None else None,
+                             bezug, z.get("unter", "") or "")
+            grp["zeilen"].append(zid)
+            if bezug and bezug not in grp["auto"]:
+                grp["auto"][bezug] = zid
+        ss.gruppen.append(grp)
+    ss.edit_nr = ss.nr
+
+
+def cb_entwurf_laden(nr: str) -> None:
+    from entwurf import aus_excel, aus_json
+    rows, _ = journal()
+    r0 = next((r for r in rows if r.get("rechnungs_nr") == nr), None)
+    if not r0:
+        ss.lade_msg = ("error", f"Rechnung {nr} nicht gefunden.")
+        return
+    if r0.get("final") == "ja":
+        ss.lade_msg = ("error", f"Rechnung {nr} ist final und kann nicht mehr bearbeitet werden.")
+        return
+    try:
+        raw = store().get(r0["daten"])[0] if r0.get("daten") else None
+        d = aus_json(raw) if raw else aus_excel(store().get(r0["excel"])[0])
+        d["nr"] = nr
+        formular_fuellen(d)
+        ss.lade_msg = ("success", f"Entwurf Nr. {nr} geladen – im Tab «✏️ Entwurf {nr}» bearbeiten und neu erstellen.")
+    except Exception as ex:
+        ss.lade_msg = ("error", f"Entwurf {nr} konnte nicht geladen werden: {ex}")
+
+
+def cb_bearbeitung_abbrechen() -> None:
+    formular_leeren()
+    ss.nr_neu = True
+
+
 def zeile_aus_state(zid: str) -> Zeile:
     unter = [u.strip(" -–•") for u in (ss.get(f"{zid}_unter") or "").splitlines() if u.strip(" -–•")]
     return Zeile(text=(ss.get(f"{zid}_text") or "").strip(), menge=ss.get(f"{zid}_menge"),
@@ -269,7 +345,7 @@ def naechste_nr() -> str:
 hero("Firma Boniface · Hausbau Gerlafingen · Grundlage: Mängelliste Architekt vom 04.07.2026")
 
 rows, jerr = journal()
-t_neu, t_liste = st.tabs(["🧾 Neue Rechnung", "📋 Übersicht"])
+t_neu, t_liste = st.tabs([f"✏️ Entwurf {ss.edit_nr}" if ss.get("edit_nr") else "🧾 Rechnung", "📋 Übersicht"])
 
 with t_liste:
     if not store():
@@ -347,6 +423,11 @@ with t_liste:
                         c2.download_button("⬇️ Excel", xlsx, r0["excel"].split("/")[-1],
                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                            width="stretch", key=f"dl_x_{wahl}")
+                    if r0.get("final") != "ja":
+                        st.button(f"✏️ Entwurf {wahl} bearbeiten", key=f"edit_{wahl}", on_click=cb_entwurf_laden,
+                                  args=(wahl,), width="stretch")
+                    if (m := ss.get("lade_msg")) and m[0] == "success" and ss.get("edit_nr") == wahl:
+                        st.success(m[1])
                     if pdf:
                         import base64
                         b64 = base64.b64encode(pdf).decode()
@@ -371,30 +452,55 @@ with t_neu:
             "*Leistungen als Text einfügen* hineinkopieren → jeder Punkt wird eine Zeile.\n"
             "5. **Erstellen** – Total prüfen → **Rechnung erstellen** → PDF/Excel herunterladen oder per Mail senden.\n"
             "6. **Übersicht** – im Tab *📋 Übersicht* Rechnungen ansehen, als **final** abhaken oder Entwürfe löschen. "
-            "Nicht finale Rechnungen sind Entwürfe und werden mit derselben Nummer überschrieben; "
-            "erst nach dem Final-Haken zählt die Nummer weiter.\n\n"
+            "Entwürfe lassen sich mit *✏️ bearbeiten* wieder öffnen, ändern und neu erstellen. "
+            "Jeder Entwurf behält seine Nummer; neue Rechnungen erhalten automatisch die kleinste freie Nummer. "
+            "Wird ein Entwurf gelöscht, wird seine Nummer wieder frei.\n\n"
             "💡 Material getrennt von der Arbeit erfassen (z.B. *11 Stk. à 525.–* und *Montage pauschal*) – das will die Bank sehen.")
 
+
+    entwuerfe = [r for r in rows if r.get("final") != "ja"]
+    if m := ss.pop("lade_msg", None):
+        getattr(st, m[0])(m[1])
+    if ss.get("edit_nr"):
+        with st.container(border=True):
+            st.markdown(f"**✏️ Du bearbeitest den Entwurf Nr. {ss.edit_nr}.** "
+                        "«Rechnung erstellen» überschreibt ihn mit den neuen Angaben.")
+            st.button("✖️ Bearbeitung beenden – neue Rechnung", on_click=cb_bearbeitung_abbrechen, width="stretch")
+    elif entwuerfe:
+        with st.expander(f"✏️ Entwurf weiterbearbeiten ({len(entwuerfe)} offen)"):
+            wahl_e = st.selectbox("Entwurf", [r["rechnungs_nr"] for r in reversed(entwuerfe)], index=None,
+                                  placeholder="Entwurf wählen …", key="entwurf_wahl",
+                                  format_func=lambda n: next(f"Nr. {r['rechnungs_nr']} · {r['positionen']} · "
+                                                             f"CHF {r['total_chf']} · {r['erstellt']}"
+                                                             for r in entwuerfe if r["rechnungs_nr"] == n))
+            st.button("Entwurf laden", on_click=lambda: cb_entwurf_laden(ss.entwurf_wahl) if ss.get("entwurf_wahl") else None,
+                      type="primary", width="stretch", disabled=not wahl_e)
 
     # ------------------------------------------------------------------ 1. Rechnung
     with st.container(border=True):
         step(1, "Rechnung")
-        if "nr" not in ss or ss.pop("nr_neu", False):
+        if "nr" not in ss:
             ss.nr = naechste_nr() if store() else str(START)
         if jerr and store():
             st.warning(f"Rechnungsnummer konnte nicht aus GitHub gelesen werden ({jerr}).")
         c1, c2 = st.columns(2)
-        c1.text_input("Rechnungs-Nr.", key="nr")
-        datum = c2.date_input("Rechnungsdatum", value=date.today(), format="DD.MM.YYYY")
+        c1.text_input("Rechnungs-Nr.", key="nr", disabled=bool(ss.get("edit_nr")),
+                      help="Beim Bearbeiten eines Entwurfs bleibt die Nummer fix." if ss.get("edit_nr") else None)
+        for _k in ("datum", "von", "bis"):
+            ss.setdefault(_k, date.today())
+        datum = c2.date_input("Rechnungsdatum", key="datum", format="DD.MM.YYYY")
         c1, c2 = st.columns(2)
-        von = c1.date_input("Ausgeführt von", value=date.today(), format="DD.MM.YYYY")
-        bis = c2.date_input("bis", value=date.today(), format="DD.MM.YYYY")
+        von = c1.date_input("Ausgeführt von", key="von", format="DD.MM.YYYY")
+        bis = c2.date_input("bis", key="bis", format="DD.MM.YYYY")
         vorhanden = next((r for r in rows if r.get("rechnungs_nr") == ss.nr.strip()), None)
         NR_FINAL = bool(vorhanden and vorhanden.get("final") == "ja")
         if NR_FINAL:
             st.error(f"Rechnung {ss.nr} ist bereits **final**. Nächste freie Nummer: **{naechste_nr()}**.")
-        elif vorhanden:
-            st.info(f"Zu Nr. {ss.nr} gibt es einen Entwurf vom {vorhanden['erstellt']} – er wird beim Erstellen überschrieben.")
+        elif vorhanden and ss.get("edit_nr") != ss.nr.strip():
+            st.error(f"Nr. {ss.nr} ist schon als **Entwurf** vergeben ({vorhanden['positionen']}, {vorhanden['erstellt']}). "
+                     f"Nächste freie Nummer: **{naechste_nr()}** – oder den Entwurf oben über «✏️ Entwurf "
+                     f"weiterbearbeiten» laden.")
+        NR_BELEGT = bool(vorhanden and not NR_FINAL and ss.get("edit_nr") != ss.nr.strip())
 
     # ------------------------------------------------------------------ 2. Position
     with st.container(border=True):
@@ -442,7 +548,9 @@ with t_neu:
                     st.text_input("Leistung", key=f"{zid}_text")
                     a, b, c = st.columns([1, 1, 1.2])
                     a.number_input("Menge", key=f"{zid}_menge", min_value=0.0, step=1.0, format="%.2f")
-                    b.selectbox("Einheit", EINHEITEN, key=f"{zid}_einheit")
+                    _e = ss.get(f"{zid}_einheit")
+                    b.selectbox("Einheit", EINHEITEN if _e in EINHEITEN or not _e else EINHEITEN + [_e],
+                                key=f"{zid}_einheit")
                     c.number_input("Preis CHF", key=f"{zid}_ansatz", min_value=0.0, step=10.0, format="%.2f")
                     if g["bkp"]:
                         st.selectbox("Bezug Mängelliste", bezug_opt, key=f"{zid}_bezug",
@@ -485,9 +593,11 @@ with t_neu:
         with st.container(border=True):
             step(4, "Prüfen & erstellen")
             with st.expander("Empfänger"):
-                empf = {"name": st.text_input("Name", empf_default.get("name", "")),
-                        "strasse": st.text_input("Strasse", empf_default.get("strasse", "")),
-                        "plz_ort": st.text_input("PLZ / Ort", empf_default.get("plz_ort", ""))}
+                for _k in ("name", "strasse", "plz_ort"):
+                    ss.setdefault(f"empf_{_k}", empf_default.get(_k, ""))
+                empf = {"name": st.text_input("Name", key="empf_name"),
+                        "strasse": st.text_input("Strasse", key="empf_strasse"),
+                        "plz_ort": st.text_input("PLZ / Ort", key="empf_plz_ort")}
             r = Rechnung(nr=ss.nr.strip(), datum=datum, zahlbar_bis=datum + timedelta(days=30),
                          ausfuehrung=f"{dstr(von)} – {dstr(bis)}" if von != bis else dstr(von),
                          firma=firma, empfaenger=empf,
@@ -515,6 +625,8 @@ with t_neu:
                         fehler.append(f"«{z.text or 'Zeile'}» hat noch keinen Preis.")
             if NR_FINAL:
                 fehler.append(f"Rechnungs-Nr. {r.nr} ist final – bitte die nächste freie Nummer verwenden.")
+            if NR_BELEGT:
+                fehler.append(f"Rechnungs-Nr. {r.nr} ist schon ein anderer Entwurf – bitte die nächste freie Nummer verwenden.")
             for f in dict.fromkeys(fehler):
                 st.warning(f)
 
@@ -534,7 +646,9 @@ with t_neu:
                             info = store().speichern(r.nr, name, xlsx, pdf, {
                                 "rechnungs_nr": r.nr, "rechnungsdatum": dstr(r.datum),
                                 "positionen": "; ".join(g.bkp or "Zusatz" for g in r.gruppen),
-                                "total_chf": f"{r.total:.2f}", "erstellt": jetzt()})
+                                "total_chf": f"{r.total:.2f}", "erstellt": jetzt()},
+                                daten=__import__("entwurf").zu_json(formular_daten()))
+                            ss.edit_nr = r.nr
                             journal_setzen(info.get("rows"))
                             res["msgs"].append(("success", f"Als Entwurf in GitHub gespeichert: {info['pdf']}. "
                                                            "Im Tab «📋 Übersicht» als final abhaken, wenn sie definitiv ist."))
@@ -574,8 +688,4 @@ with t_neu:
                 c2.download_button("⬇️ Excel", res["xlsx"], f"{res['name']}.xlsx",
                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                    width="stretch")
-                if st.button("Neue Rechnung beginnen", width="stretch"):
-                    for k in list(ss.keys()):
-                        if k != "ok":
-                            del ss[k]
-                    st.rerun()
+                st.button("Neue Rechnung beginnen", width="stretch", on_click=cb_bearbeitung_abbrechen)
